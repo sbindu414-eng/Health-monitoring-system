@@ -1,0 +1,19 @@
+{
+  "name": "modular-ml-health-monitoring",
+  "version": "1.0.0",
+  "description": "Modular ML Framework for Personalized Health Monitoring & Risk Prediction",
+  "main": "index.html",
+  "scripts": {
+    "start": "python -m http.server 8000",
+    "backend": "python backend/server.py",
+    "dev": "python -m http.server 8000"
+  },
+  "keywords": [
+    "health",
+    "machine-learning",
+    "ecg",
+    "risk-prediction"
+  ],
+  "author": "",
+  "license": "ISC"
+}

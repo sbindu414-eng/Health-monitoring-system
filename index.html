@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modular ML Framework for Personalized Health Monitoring & Risk Prediction</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkBg: '#070a12',
+                        cardBg: 'rgba(15, 23, 42, 0.85)'
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="bg-darkBg text-slate-100 min-h-screen flex flex-col">
+
+    <!-- Header / Navbar -->
+    <header class="border-b border-slate-800 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-rose-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-base font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 via-purple-300 to-cyan-400">
+                        Modular ML Health Monitoring Framework
+                    </h1>
+                </div>
+            </div>
+
+            <!-- Presets, Actions & User Session -->
+            <div class="flex items-center gap-3">
+                <!-- Patient Presets & Pipeline Button -->
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-slate-400 hidden lg:inline">Preset Profiles:</span>
+                    <button id="presetAthlete" class="px-2 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 transition-all">Athlete</button>
+                    <button id="presetHypertension" class="px-2 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 transition-all">Hypertension</button>
+                    <button id="presetCardiac" class="px-2 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-rose-300 border border-rose-500/30 transition-all">Cardiac Risk</button>
+
+                    <button id="btnRunFullPipeline" class="ml-1 px-3 py-1 text-xs font-semibold rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-md shadow-purple-500/20 flex items-center gap-1.5 transition-all">
+                        <span>⚡ Run Full Scan</span>
+                    </button>
+                </div>
+
+                <!-- Active User Badge & Sign Out Button -->
+                <div class="flex items-center gap-2 pl-3 border-l border-slate-800" id="userHeaderProfile">
+                    <div class="w-8 h-8 rounded-full bg-slate-800 border border-indigo-500/40 flex items-center justify-center text-sm shadow" id="userAvatar">
+                        👨‍⚕️
+                    </div>
+                    <div class="hidden sm:block text-left leading-tight">
+                        <div class="text-xs font-bold text-slate-200" id="userName">Dr. Bindu S</div>
+                        <div class="text-[10px] text-indigo-400 font-mono" id="userRole">Clinician</div>
+                    </div>
+                    <button id="btnSignOut" title="Sign Out / Logout" onclick="handleSignOut()" class="p-1.5 text-xs text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all ml-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <nav class="max-w-7xl mx-auto px-4 flex overflow-x-auto text-xs font-medium border-t border-slate-900">
+            <button data-tab="overview" class="px-4 py-2.5 flex items-center gap-2 bg-slate-800 text-white border-b-2 border-indigo-500 transition-all">
+                <span>🏠 Overview & Flow</span>
+            </button>
+            <button data-tab="diet" class="px-4 py-2.5 flex items-center gap-2 text-slate-400 hover:text-slate-200 transition-all">
+                <span>🥗 Diet (RF 89.2%)</span>
+            </button>
+            <button data-tab="disease" class="px-4 py-2.5 flex items-center gap-2 text-slate-400 hover:text-slate-200 transition-all">
+                <span>🩺 Disease (LogReg 86.7%)</span>
+            </button>
+            <button data-tab="ecg" class="px-4 py-2.5 flex items-center gap-2 text-slate-400 hover:text-slate-200 transition-all">
+                <span>🫀 ECG Ensemble (93.5%)</span>
+            </button>
+            <button data-tab="fitness" class="px-4 py-2.5 flex items-center gap-2 text-slate-400 hover:text-slate-200 transition-all">
+                <span>🏃 Fitness (LinReg R² 0.82)</span>
+            </button>
+            <button data-tab="risk" class="px-4 py-2.5 flex items-center gap-2 text-slate-400 hover:text-slate-200 transition-all">
+                <span>🛡️ Integrated Risk (XGBoost 91.3%)</span>
+            </button>
+        </nav>
+    </header>
+
+    <!-- Main Workspace Content -->
+    <main class="max-w-7xl mx-auto px-4 py-6 flex-1 w-full space-y-6">
+
+        <!-- TAB 1: OVERVIEW & PIPELINE FLOW (Fig 1 Methodology) -->
+        <section id="tab-overview" class="tab-panel space-y-6">
+            <div class="glass-panel rounded-2xl p-6 relative overflow-hidden">
+                <div class="absolute -right-10 -bottom-10 w-64 h-64 bg-indigo-600/10 rounded-full blur-3xl"></div>
+                <div class="max-w-3xl space-y-3">
+                    <h2 class="text-2xl font-bold text-slate-100">Multi-Domain Modular ML Health Framework</h2>
+                    <p class="text-sm text-slate-300 leading-relaxed">
+                        A modular machine learning architecture designed to eliminate health fragmentation. The framework consists of five domain-optimized modules evaluating dietary habits, acute/chronic disease symptoms, 12-lead ECG signals, physical fitness metrics, and integrated health risk stratification.
+                    </p>
+                </div>
+
+                <!-- Fig. 1 Methodology Pipeline Diagram -->
+                <div class="mt-8 pt-6 border-t border-slate-800">
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Methodology Pipeline (Paper Fig. 1)</h3>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-5 gap-3 relative">
+                        <!-- Step 1 -->
+                        <div class="glass-panel p-4 rounded-xl space-y-2 border-emerald-500/30 text-center relative group hover:border-emerald-500">
+                            <span class="text-2xl">🥗</span>
+                            <h4 class="text-xs font-bold text-emerald-400">1. Diet Module</h4>
+                            <p class="text-[11px] text-slate-400">Random Forest Classifier (89.2% Acc)</p>
+                            <span class="inline-block px-2 py-0.5 text-[10px] rounded bg-emerald-500/10 text-emerald-300 font-mono">Output: Diet Rating</span>
+                        </div>
+
+                        <!-- Step 2 -->
+                        <div class="glass-panel p-4 rounded-xl space-y-2 border-cyan-500/30 text-center relative group hover:border-cyan-500">
+                            <span class="text-2xl">🩺</span>
+                            <h4 class="text-xs font-bold text-cyan-400">2. Disease Module</h4>
+                            <p class="text-[11px] text-slate-400">Logistic Regression (86.7% Acc)</p>
+                            <span class="inline-block px-2 py-0.5 text-[10px] rounded bg-cyan-500/10 text-cyan-300 font-mono">Output: Disease Diagnosis</span>
+                        </div>
+
+                        <!-- Step 3 -->
+                        <div class="glass-panel p-4 rounded-xl space-y-2 border-rose-500/30 text-center relative group hover:border-rose-500">
+                            <span class="text-2xl">🫀</span>
+                            <h4 class="text-xs font-bold text-rose-400">3. ECG Module</h4>
+                            <p class="text-[11px] text-slate-400">Weighted Ensemble (93.5% Acc, 0.96 AUC)</p>
+                            <span class="inline-block px-2 py-0.5 text-[10px] rounded bg-rose-500/10 text-rose-300 font-mono">Output: ECG Diagnostic</span>
+                        </div>
+
+                        <!-- Step 4 -->
+                        <div class="glass-panel p-4 rounded-xl space-y-2 border-amber-500/30 text-center relative group hover:border-amber-500">
+                            <span class="text-2xl">🏃</span>
+                            <h4 class="text-xs font-bold text-amber-400">4. Fitness Module</h4>
+                            <p class="text-[11px] text-slate-400">Linear Regression (R² 0.82)</p>
+                            <span class="inline-block px-2 py-0.5 text-[10px] rounded bg-amber-500/10 text-amber-300 font-mono">Output: Fitness Score</span>
+                        </div>
+
+                        <!-- Step 5 -->
+                        <div class="glass-panel p-4 rounded-xl space-y-2 border-purple-500/40 bg-purple-950/20 text-center relative group hover:border-purple-500">
+                            <span class="text-2xl">🛡️</span>
+                            <h4 class="text-xs font-bold text-purple-400">5. Risk Module</h4>
+                            <p class="text-[11px] text-slate-400">XGBoost Classifier (91.3% Acc)</p>
+                            <span class="inline-block px-2 py-0.5 text-[10px] rounded bg-purple-500/20 text-purple-300 font-mono font-bold">Integrated Stratification</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 2: DIET SUGGESTION MODULE (Random Forest) -->
+        <section id="tab-diet" class="tab-panel hidden space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Input Panel -->
+                <div class="glass-panel rounded-2xl p-5 space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <h3 class="text-sm font-bold text-emerald-400 flex items-center gap-2">
+                            <span>🥗</span> Diet Parameters Input
+                        </h3>
+                        <span class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-mono">Random Forest</span>
+                    </div>
+
+                    <div class="space-y-3 text-xs">
+                        <div>
+                            <label class="block text-slate-400 mb-1">Age & Gender</label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="number" id="dietAge" value="34" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                                <select id="dietGender" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                                    <option value="male">Male</option>
+                                    <option value="female">Female</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-slate-400 mb-1">Height (cm) & Weight (kg)</label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="number" id="dietHeight" value="175" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                                <input type="number" id="dietWeight" value="78" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-slate-400 mb-1">Activity Level</label>
+                            <select id="dietActivity" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                                <option value="sedentary">Sedentary (Little or no exercise)</option>
+                                <option value="light">Lightly Active (1-3 days/wk)</option>
+                                <option value="moderate" selected>Moderately Active (3-5 days/wk)</option>
+                                <option value="active">Active (6-7 days/wk)</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-slate-400 mb-1">Diet Preference & Sleep (Hours)</label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <select id="dietType" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                                    <option value="balanced" selected>Balanced</option>
+                                    <option value="keto">Keto / Low Carb</option>
+                                    <option value="vegetarian">Vegetarian</option>
+                                    <option value="vegan">Vegan</option>
+                                </select>
+                                <input type="number" step="0.5" id="dietSleep" value="7.0" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-slate-400 mb-1">Primary Dietary Goal</label>
+                            <select id="dietGoal" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                                <option value="weight_loss">Weight Loss / Calorie Deficit (-500 kcal)</option>
+                                <option value="maintenance" selected>Weight Maintenance / Metabolic Health (TDEE)</option>
+                                <option value="muscle_gain">Muscle Building / Hypertrophy (+350 kcal)</option>
+                            </select>
+                        </div>
+
+                        <button id="btnRunDiet" class="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg shadow-lg shadow-emerald-600/20 transition-all">
+                            Compute Diet Model
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Results Output Panel -->
+                <div class="lg:col-span-2 glass-panel rounded-2xl p-5 space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <h3 class="text-sm font-bold text-slate-200">Model Evaluation & Macronutrient Prescription</h3>
+                        <span id="dietRatingBadge" class="px-2.5 py-0.5 rounded text-xs badge-diet font-mono font-bold">Optimal</span>
+                    </div>
+
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3 text-center">
+                            <span class="text-[10px] text-slate-400 uppercase">Diet Rating Score</span>
+                            <div id="dietScoreVal" class="text-2xl font-bold font-mono text-emerald-400 mt-1">89</div>
+                        </div>
+                        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3 text-center">
+                            <span class="text-[10px] text-slate-400 uppercase">Body Mass Index (BMI)</span>
+                            <div id="dietBmiVal" class="text-2xl font-bold font-mono text-slate-200 mt-1">25.5</div>
+                        </div>
+                        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3 text-center">
+                            <span class="text-[10px] text-slate-400 uppercase">Maintenance TDEE</span>
+                            <div id="dietTdeeVal" class="text-2xl font-bold font-mono text-cyan-400 mt-1">2350 kcal</div>
+                        </div>
+                        <div class="bg-slate-900/80 border border-emerald-500/40 bg-emerald-950/20 rounded-xl p-3 text-center">
+                            <span class="text-[10px] text-emerald-300 uppercase font-semibold">Prescribed Intake</span>
+                            <div id="dietTargetCalVal" class="text-2xl font-bold font-mono text-emerald-400 mt-1">2350 kcal</div>
+                        </div>
+                    </div>
+
+                    <!-- Meal Breakdown & Practical Food Suggestions -->
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center">
+                            <h4 class="text-xs font-semibold text-slate-300">Recommended Meal Split & Sample Foods</h4>
+                            <span id="mealSplitPatternTag" class="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-mono">Dynamic Caloric Split</span>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+                            <div class="p-2.5 bg-slate-900/60 border border-slate-800 rounded-lg flex flex-col justify-between">
+                                <div>
+                                    <div class="flex justify-between items-center">
+                                        <span id="mealTitleBreakfast" class="text-[11px] font-semibold text-slate-300">🍳 Breakfast (25%)</span>
+                                        <span id="mealBreakfast" class="font-mono text-emerald-300 font-bold text-xs">580 kcal</span>
+                                    </div>
+                                    <p id="foodBreakfast" class="text-[10px] text-slate-400 mt-1 leading-snug">Sample meals loading...</p>
+                                </div>
+                            </div>
+                            <div class="p-2.5 bg-slate-900/60 border border-slate-800 rounded-lg flex flex-col justify-between">
+                                <div>
+                                    <div class="flex justify-between items-center">
+                                        <span id="mealTitleLunch" class="text-[11px] font-semibold text-slate-300">🥗 Lunch (35%)</span>
+                                        <span id="mealLunch" class="font-mono text-emerald-300 font-bold text-xs">820 kcal</span>
+                                    </div>
+                                    <p id="foodLunch" class="text-[10px] text-slate-400 mt-1 leading-snug">Sample meals loading...</p>
+                                </div>
+                            </div>
+                            <div class="p-2.5 bg-slate-900/60 border border-emerald-500/40 bg-emerald-950/10 rounded-lg flex flex-col justify-between">
+                                <div>
+                                    <div class="flex justify-between items-center">
+                                        <span id="mealTitleDinner" class="text-[11px] font-semibold text-emerald-300">🍲 Dinner (30%)</span>
+                                        <span id="mealDinner" class="font-mono text-emerald-300 font-bold text-xs">700 kcal</span>
+                                    </div>
+                                    <p id="foodDinner" class="text-[10px] text-slate-400 mt-1 leading-snug">Sample meals loading...</p>
+                                </div>
+                            </div>
+                            <div class="p-2.5 bg-slate-900/60 border border-slate-800 rounded-lg flex flex-col justify-between">
+                                <div>
+                                    <div class="flex justify-between items-center">
+                                        <span id="mealTitleSnacks" class="text-[11px] font-semibold text-slate-300">🥜 Snacks (10%)</span>
+                                        <span id="mealSnacks" class="font-mono text-emerald-300 font-bold text-xs">230 kcal</span>
+                                    </div>
+                                    <p id="foodSnacks" class="text-[10px] text-slate-400 mt-1 leading-snug">Sample meals loading...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Practical Portion Rule Guide (Hand Size Method) -->
+                    <div class="p-3 bg-gradient-to-r from-emerald-950/30 via-slate-900/60 to-slate-900/80 border border-emerald-500/20 rounded-xl space-y-2">
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                                <span>✋</span> Practical Portion Guide (How to Eat Without Counting Calories)
+                            </h4>
+                            <span class="text-[10px] text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded">No Scale Required</span>
+                        </div>
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                            <div class="bg-slate-950/60 p-2 rounded border border-slate-800/70">
+                                <span class="text-emerald-400 font-semibold block">✋ Palm Size</span>
+                                <span class="text-slate-300 text-[10px]">Protein (~20-30g): Eggs, chicken, fish, paneer, tofu, lentils</span>
+                            </div>
+                            <div class="bg-slate-950/60 p-2 rounded border border-slate-800/70">
+                                <span class="text-emerald-400 font-semibold block">✊ Closed Fist</span>
+                                <span class="text-slate-300 text-[10px]">Veggies / Greens: Broccoli, spinach, cucumbers, mixed salad</span>
+                            </div>
+                            <div class="bg-slate-950/60 p-2 rounded border border-slate-800/70">
+                                <span class="text-emerald-400 font-semibold block">🤲 Cupped Hand</span>
+                                <span class="text-slate-300 text-[10px]">Carbs: Rice, oats, quinoa, sweet potatoes, rotis</span>
+                            </div>
+                            <div class="bg-slate-950/60 p-2 rounded border border-slate-800/70">
+                                <span class="text-emerald-400 font-semibold block">👍 Thumb Size</span>
+                                <span class="text-slate-300 text-[10px]">Healthy Fats: Olive oil, butter, avocado, nuts & seeds</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recommendations -->
+                    <div class="space-y-2">
+                        <h4 class="text-xs font-semibold text-slate-300">Dietary Directives</h4>
+                        <ul id="dietRecList" class="space-y-1 bg-slate-900/40 p-3 rounded-lg border border-slate-800"></ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 3: DISEASE PREDICTION MODULE (Logistic Regression) -->
+        <section id="tab-disease" class="tab-panel hidden space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Symptom Checklist Input -->
+                <div class="glass-panel rounded-2xl p-5 space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <h3 class="text-sm font-bold text-cyan-400 flex items-center gap-2">
+                            <span>🩺</span> Binary Symptom Vector (17 Features)
+                        </h3>
+                        <span class="text-[10px] px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 font-mono">Logistic Reg</span>
+                    </div>
+
+                    <div class="flex justify-between items-center text-xs">
+                        <span class="text-slate-400">Select active patient symptoms:</span>
+                        <span id="diseaseSymptomCounter" class="text-[10px] font-mono text-cyan-300 bg-cyan-950/60 border border-cyan-500/30 px-2 py-0.5 rounded">4 Selected</span>
+                    </div>
+
+                    <div id="symptomPillContainer" class="flex flex-wrap gap-2 max-h-72 overflow-y-auto pr-1"></div>
+
+                    <!-- Clinical Input Parameters -->
+                    <div class="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-800/80">
+                        <div>
+                            <label class="block text-slate-400 mb-1">Symptom Duration</label>
+                            <select id="diseaseDuration" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200 text-xs">
+                                <option value="acute_24h">Acute (&lt; 24h)</option>
+                                <option value="1_3_days" selected>1 – 3 Days</option>
+                                <option value="4_7_days">4 – 7 Days</option>
+                                <option value="persistent_week">&gt; 1 Week (Persistent)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 mb-1">Reported Severity</label>
+                            <select id="diseaseSeverityInput" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200 text-xs">
+                                <option value="mild">Mild (Low impact)</option>
+                                <option value="moderate" selected>Moderate (Disruptive)</option>
+                                <option value="severe">Severe (Acute discomfort)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-2">
+                        <button id="btnRunDisease" class="flex-1 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg shadow-lg shadow-cyan-600/20 transition-all text-xs">
+                            Run Disease Predictor
+                        </button>
+                        <button id="btnClearSymptoms" type="button" title="Clear all selected symptoms" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 text-xs transition-all">
+                            Clear
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Diagnosis Output -->
+                <div class="lg:col-span-2 glass-panel rounded-2xl p-5 space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <h3 class="text-sm font-bold text-slate-200">Multiclass Softmax Diagnosis Output</h3>
+                        <span id="diseaseSeverity" class="px-2.5 py-0.5 rounded text-xs badge-disease font-mono font-bold">Moderate</span>
+                    </div>
+
+                    <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+                        <div>
+                            <span class="text-[10px] text-slate-400 uppercase tracking-wider">Primary Predicted Diagnosis</span>
+                            <h4 id="diseasePrimary" class="text-xl font-bold text-cyan-300 mt-0.5">Flu / Viral Influenza</h4>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-[10px] text-slate-400 uppercase">Confidence Score</span>
+                            <div id="diseaseConfidence" class="text-2xl font-bold font-mono text-cyan-400">86.7%</div>
+                        </div>
+                    </div>
+
+                    <!-- Probability distribution -->
+                    <div class="space-y-2">
+                        <h4 class="text-xs font-semibold text-slate-300">Disease Category Probability Vector</h4>
+                        <div id="diseaseProbBreakdown" class="space-y-2 bg-slate-900/40 p-3 rounded-lg border border-slate-800"></div>
+                    </div>
+
+                    <!-- Patient-Friendly Clinical Guidance -->
+                    <div class="p-3.5 bg-gradient-to-r from-cyan-950/30 via-slate-900/60 to-slate-900/80 border border-cyan-500/30 rounded-xl space-y-2.5 text-xs">
+                        <div class="flex items-center justify-between border-b border-cyan-500/20 pb-2">
+                            <span class="font-bold text-cyan-300 flex items-center gap-1.5 text-xs">
+                                <span>📋</span> Recommended Action Plan & Next Steps
+                            </span>
+                            <span id="diseaseParamTag" class="text-[10px] text-cyan-400 bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 rounded font-mono">Dynamic Parameter Synthesis</span>
+                        </div>
+
+                        <!-- Plain English Summary -->
+                        <div>
+                            <span class="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">What This Means:</span>
+                            <p id="diseaseRecSummary" class="text-slate-200 mt-0.5 leading-relaxed font-medium">Evaluating symptoms...</p>
+                        </div>
+
+                        <!-- Actionable Home Care Steps -->
+                        <div class="space-y-1">
+                            <span class="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">Immediate Steps You Should Take:</span>
+                            <ul id="diseaseActionStepsList" class="space-y-1.5 mt-1 text-slate-300"></ul>
+                        </div>
+
+                        <!-- Warning / Red Flag Indicator -->
+                        <div id="diseaseWarningBox" class="p-2.5 bg-slate-950/70 rounded-lg border border-amber-500/30 text-[11px] text-amber-300 flex items-start gap-2">
+                            <span class="text-amber-400 text-sm flex-shrink-0">⚠️</span>
+                            <div>
+                                <span class="font-bold text-amber-300">When to Seek Medical Care:</span>
+                                <p id="diseaseWarningText" class="text-slate-300 mt-0.5 leading-snug"></p>
+                            </div>
+                        </div>
+
+                        <!-- Hidden fallback for legacy compatibility -->
+                        <p id="diseaseRecText" class="hidden"></p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 4: ECG CLASSIFICATION MODULE (Ensemble Learning) -->
+        <section id="tab-ecg" class="tab-panel hidden space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Controls & Presets -->
+                <div class="glass-panel rounded-2xl p-5 space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <h3 class="text-sm font-bold text-rose-400 flex items-center gap-2">
+                            <span>🫀</span> ECG Lead & Anomaly Selector
+                        </h3>
+                        <span class="text-[10px] px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 font-mono">Soft Ensemble</span>
+                    </div>
+
+                    <div class="space-y-3 text-xs">
+                        <div>
+                            <label class="block text-slate-400 mb-1">Diagnostic Condition Preset</label>
+                            <select id="ecgConditionSelect" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                                <option value="NSR">Normal Sinus Rhythm (NSR)</option>
+                                <option value="AF">Atrial Fibrillation (AF)</option>
+                                <option value="LBBB">Left Bundle Branch Block (LBBB)</option>
+                                <option value="RBBB" selected>Right Bundle Branch Block (RBBB)</option>
+                                <option value="ST_ELEV">ST Elevation / Myocardial Ischemia</option>
+                                <option value="AV_BLOCK_1">1st Degree AV Block</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-slate-400 mb-1">Lead Display</label>
+                            <select id="ecgLeadSelect" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                                <option value="Lead II" selected>Lead II (Standard Telemetry)</option>
+                                <option value="Lead I">Lead I</option>
+                                <option value="V1">V1 (Precordial)</option>
+                                <option value="V5">V5 (Lateral)</option>
+                            </select>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-slate-400 mb-0.5">RR Interval (ms)</label>
+                                <input type="number" id="ecgRr" value="780" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 mb-0.5">Heart Rate (BPM)</label>
+                                <input type="number" id="ecgHr" value="77" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 font-mono">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-slate-400 mb-0.5">QRS Duration (ms)</label>
+                                <input type="number" id="ecgQrs" value="135" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 mb-0.5">PR Interval (ms)</label>
+                                <input type="number" id="ecgPr" value="165" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 font-mono">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-slate-400 mb-0.5">ST Elevation (mV)</label>
+                                <input type="number" step="0.05" id="ecgSt" value="0.05" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 mb-0.5">HRV (ms)</label>
+                                <input type="number" id="ecgHrv" value="40" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 font-mono">
+                            </div>
+                        </div>
+
+                        <button id="btnRunEcg" class="w-full py-2 bg-rose-600 hover:bg-rose-500 text-white font-semibold rounded-lg shadow-lg shadow-rose-600/20 transition-all">
+                            Classify ECG Pattern
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Canvas Visualizer & Output -->
+                <div class="lg:col-span-2 glass-panel rounded-2xl p-5 space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <h3 class="text-sm font-bold text-slate-200">Real-Time Telemetry Sweep Canvas</h3>
+                        <span id="ecgSeverityBadge" class="px-2.5 py-0.5 rounded text-xs badge-ecg font-mono font-bold">Moderate</span>
+                    </div>
+
+                    <!-- ECG Canvas Display -->
+                    <div class="ecg-frame bg-slate-950 rounded-xl p-1">
+                        <canvas id="ecgCanvas" class="w-full h-56 rounded-lg"></canvas>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3">
+                            <span class="text-[10px] text-slate-400 uppercase">Ensemble Classification Label</span>
+                            <h4 id="ecgDiagnosisName" class="text-lg font-bold text-rose-400 mt-0.5">Right Bundle Branch Block (RBBB)</h4>
+                        </div>
+                        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3 text-right">
+                            <span class="text-[10px] text-slate-400 uppercase">Weighted Voting Confidence</span>
+                            <div id="ecgConfidenceVal" class="text-2xl font-bold font-mono text-rose-400">93.5%</div>
+                        </div>
+                    </div>
+
+                    <!-- Soft Voting Breakdown -->
+                    <div class="space-y-2">
+                        <h4 class="text-xs font-semibold text-slate-300">Ensemble Standalone Model Voting Consensus</h4>
+                        <div id="ecgEnsembleVotes" class="grid grid-cols-2 gap-2"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 5: FITNESS ESTIMATION MODULE (Linear Regression) -->
+        <section id="tab-fitness" class="tab-panel hidden space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Input Panel -->
+                <div class="glass-panel rounded-2xl p-5 space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <h3 class="text-sm font-bold text-amber-400 flex items-center gap-2">
+                            <span>🏃</span> Lifestyle & Interaction Metrics
+                        </h3>
+                        <span class="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 font-mono">LinReg (R² 0.82)</span>
+                    </div>
+
+                    <div class="space-y-3 text-xs">
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-slate-400 mb-0.5">Age</label>
+                                <input type="number" id="fitAge" value="34" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 mb-0.5">Weight (kg)</label>
+                                <input type="number" id="fitWeight" value="78" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-slate-400 mb-0.5">Height (cm)</label>
+                                <input type="number" id="fitHeight" value="175" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 mb-0.5">Exercise (min/day)</label>
+                                <input type="number" id="fitExercise" value="45" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-slate-400 mb-0.5">Sleep (Hours)</label>
+                                <input type="number" step="0.5" id="fitSleep" value="7.5" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 mb-0.5">Calories Intake</label>
+                                <input type="number" id="fitCalories" value="2300" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-slate-400 mb-0.5">Resting HR (BPM)</label>
+                                <input type="number" id="fitHr" value="68" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 mb-0.5">Stress Level (1-10)</label>
+                                <input type="number" id="fitStress" value="4" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                            </div>
+                        </div>
+
+                        <button id="btnRunFitness" class="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-lg shadow-lg shadow-amber-600/20 transition-all">
+                            Estimate Fitness Score
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Results Output Panel -->
+                <div class="lg:col-span-2 glass-panel rounded-2xl p-5 space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <h3 class="text-sm font-bold text-slate-200">Continuous Fitness Score & Indicator Breakdown</h3>
+                        <span id="fitnessCategoryBadge" class="px-2.5 py-0.5 rounded text-xs badge-fitness font-mono font-bold">Good</span>
+                    </div>
+
+                    <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+                        <div>
+                            <span class="text-[10px] text-slate-400 uppercase tracking-wider">Estimated Continuous Score</span>
+                            <div class="flex items-baseline gap-2">
+                                <span id="fitnessScoreVal" class="text-3xl font-bold font-mono text-amber-400 mt-0.5">78.5</span>
+                                <span class="text-xs text-slate-400">/ 100</span>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-[10px] text-slate-400 uppercase">Regression R² Score</span>
+                            <div class="text-xl font-bold font-mono text-amber-400">0.820</div>
+                        </div>
+                    </div>
+
+                    <!-- Normalized Health Indicators -->
+                    <div class="space-y-2">
+                        <h4 class="text-xs font-semibold text-slate-300">Standardized Health Parameters</h4>
+                        <div id="fitnessIndicatorsList" class="space-y-3 bg-slate-900/40 p-4 rounded-lg border border-slate-800"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 6: INTEGRATED HEALTH RISK STRATIFICATION (XGBoost) -->
+        <section id="tab-risk" class="tab-panel hidden space-y-6">
+            <div class="glass-panel rounded-2xl p-6 relative overflow-hidden space-y-6">
+                <div class="flex flex-wrap justify-between items-center border-b border-slate-800 pb-4">
+                    <div>
+                        <span class="px-2.5 py-0.5 text-xs rounded badge-risk font-mono font-bold">Aggregate XGBoost Model</span>
+                        <h3 id="riskLevelTitle" class="text-2xl font-bold text-purple-300 mt-1">MODERATE RISK</h3>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span id="riskBadge" class="px-4 py-1.5 rounded-xl text-sm font-bold font-mono bg-purple-500/20 text-purple-300 border border-purple-500/40">Moderate</span>
+                        <div class="text-right">
+                            <span class="text-[10px] text-slate-400 uppercase">Risk Score</span>
+                            <div id="riskScoreVal" class="text-2xl font-bold font-mono text-purple-400">42%</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stratification Probabilities -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-slate-900/80 border border-emerald-500/30 rounded-xl p-3 text-center">
+                        <span class="text-[10px] text-emerald-400 uppercase font-bold">Low Risk Probability</span>
+                        <div id="probLow" class="text-xl font-bold font-mono text-emerald-300 mt-0.5">22.0%</div>
+                    </div>
+                    <div class="bg-slate-900/80 border border-amber-500/30 rounded-xl p-3 text-center">
+                        <span class="text-[10px] text-amber-400 uppercase font-bold">Moderate Risk Probability</span>
+                        <div id="probMod" class="text-xl font-bold font-mono text-amber-300 mt-0.5">65.0%</div>
+                    </div>
+                    <div class="bg-slate-900/80 border border-rose-500/30 rounded-xl p-3 text-center">
+                        <span class="text-[10px] text-rose-400 uppercase font-bold">High Risk Probability</span>
+                        <div id="probHigh" class="text-xl font-bold font-mono text-rose-300 mt-0.5">13.0%</div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Feature Contributions -->
+                    <div class="space-y-2">
+                        <h4 class="text-xs font-semibold text-slate-300">Feature Importance Risk Weightings</h4>
+                        <div id="riskFeatureContributions" class="space-y-2"></div>
+                    </div>
+
+                    <!-- Action Plan -->
+                    <div class="space-y-2">
+                        <h4 class="text-xs font-semibold text-slate-300">Clinical Action & Lifestyle Recommendations</h4>
+                        <ul id="riskActionPlanList" class="space-y-2"></ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-900 bg-slate-950 py-4 text-center text-xs text-slate-500 mt-auto">
+        <p>A Modular Machine Learning Framework for Personalized Health Monitoring and Risk Prediction &copy; 2025-2026</p>
+    </footer>
+
+    <!-- Application JavaScript Modules -->
+    <script src="js/models/diet_module.js"></script>
+    <script src="js/models/disease_module.js"></script>
+    <script src="js/models/ecg_module.js"></script>
+    <script src="js/models/fitness_module.js"></script>
+    <script src="js/models/risk_module.js"></script>
+    <script src="js/ui/ecg_canvas.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

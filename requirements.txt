@@ -1,0 +1,5 @@
+# Modular ML Health Monitoring Framework Requirements
+# Core backend and ML benchmark dependencies
+requests>=2.31.0
+numpy>=1.24.0
+pandas>=2.0.0
