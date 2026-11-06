@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Modular ML Framework for Personalized Health Monitoring & Risk Prediction
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
@@ -290,3 +291,6 @@ The top navigation bar provides instant one-click scenario presets:
 ## 📄 License
 
 This project is licensed under the [ISC License](LICENSE).
+=======
+# Health-monitoring-system
+>>>>>>> df702d9d7220ff5fe806e2fabad657526c4c5601
