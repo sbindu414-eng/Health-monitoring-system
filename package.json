@@ -1,16 +1,20 @@
 {
   "name": "modular-ml-health-monitoring",
-  "version": "1.0.0",
-  "description": "Modular ML Framework for Personalized Health Monitoring & Risk Prediction",
-  "main": "index.html",
+  "version": "2.0.0",
+  "description": "Modular ML Framework for Personalized Health Monitoring & Risk Prediction (React + Python)",
+  "main": "frontend/index.html",
   "scripts": {
-    "start": "python -m http.server 8000",
+    "start": "cmd /c start.bat",
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "frontend": "npm --prefix frontend run dev",
     "backend": "python backend/server.py",
-    "dev": "python -m http.server 8000"
+    "preview": "npm --prefix frontend run preview"
   },
   "keywords": [
     "health",
     "machine-learning",
+    "react",
     "ecg",
     "risk-prediction"
   ],

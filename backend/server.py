@@ -30,20 +30,32 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
             self._set_headers(404)
             self.wfile.write(json.dumps({"error": "Endpoint not found"}).encode('utf-8'))
         else:
-            # Serve static files (HTML, CSS, JS) from project root
+            # Serve static files: first check React frontend/dist, then project root
             req_path = self.path.split('?')[0].lstrip('/')
-            if not req_path:
-                req_path = 'login.html'
-            elif req_path == 'login':
-                req_path = 'login.html'
-            file_path = os.path.abspath(os.path.join(ROOT_DIR, req_path))
-            if file_path.startswith(ROOT_DIR) and os.path.isfile(file_path):
+            dist_dir = os.path.abspath(os.path.join(ROOT_DIR, 'frontend', 'dist'))
+            
+            # Check frontend/dist first for production React build
+            file_path = os.path.abspath(os.path.join(dist_dir, req_path)) if req_path else os.path.join(dist_dir, 'index.html')
+            if not os.path.isfile(file_path):
+                # Fallback to index.html for SPA client-side routing
+                spa_index = os.path.join(dist_dir, 'index.html')
+                if os.path.isfile(spa_index) and '.' not in os.path.basename(req_path):
+                    file_path = spa_index
+                else:
+                    # Fallback to root directory
+                    if not req_path:
+                        req_path = 'login.html'
+                    file_path = os.path.abspath(os.path.join(ROOT_DIR, req_path))
+
+            if os.path.isfile(file_path):
                 mime, _ = mimetypes.guess_type(file_path)
                 if not mime:
                     if file_path.endswith('.js'):
                         mime = 'application/javascript'
                     elif file_path.endswith('.css'):
                         mime = 'text/css'
+                    elif file_path.endswith('.html'):
+                        mime = 'text/html; charset=utf-8'
                     else:
                         mime = 'application/octet-stream'
                 self._set_headers(200, content_type=mime)
