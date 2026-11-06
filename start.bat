@@ -1,4 +1,5 @@
 @echo off
+cd /d "%~dp0"
 echo ================================================================
 echo Starting Modular ML Health Monitoring Framework
 echo ================================================================
@@ -6,7 +7,7 @@ echo Starting Backend API Server (Port 5000)...
 start "Health ML Backend API" python backend/server.py
 echo Starting Frontend HTTP Server (Port 8000)...
 start "Health ML Frontend" python -m http.server 8000
-timeout /t 2 >nul
+ping -n 3 127.0.0.1 >nul
 echo Opening application in default browser...
 start http://localhost:8000/login.html
 echo.

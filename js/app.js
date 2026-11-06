@@ -73,6 +73,10 @@ document.addEventListener("DOMContentLoaded", () => {
             ecg: null,
             fitness: null,
             risk: null
+        },
+        ecgState: {
+            symptoms: [],
+            hasFile: false
         }
     };
 
@@ -262,48 +266,92 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // ── ECG Symptom Pill Renderer ────────────────────────────────────────────
+    function renderEcgSymptomPills() {
+        const container = document.getElementById("ecgSymptomPills");
+        if (!container) return;
+        let html = "";
+        ECGModule.cardiacSymptoms.forEach(s => {
+            const isActive = appState.ecgState.symptoms.includes(s.id);
+            html += `
+                <div class="ecg-sym-pill glass-panel px-2.5 py-1.5 rounded-lg text-[11px] flex items-center gap-1.5 cursor-pointer select-none transition-all
+                    ${isActive ? 'bg-rose-900/40 border-rose-500/60 text-white' : 'text-slate-300 hover:border-slate-600'}"
+                     data-ecg-sym="${s.id}">
+                    <span class="w-1.5 h-1.5 rounded-full flex-shrink-0 ${isActive ? 'bg-rose-400 animate-pulse' : 'bg-slate-600'}"></span>
+                    <span>${s.label}</span>
+                </div>`;
+        });
+        container.innerHTML = html;
+
+        container.querySelectorAll(".ecg-sym-pill").forEach(pill => {
+            pill.addEventListener("click", () => {
+                const symId = pill.getAttribute("data-ecg-sym");
+                const idx   = appState.ecgState.symptoms.indexOf(symId);
+                if (idx > -1) appState.ecgState.symptoms.splice(idx, 1);
+                else          appState.ecgState.symptoms.push(symId);
+                renderEcgSymptomPills();
+            });
+        });
+    }
+
     // Execute Module 3: ECG Pattern Classification
     function runEcgModule() {
-        const selectedCond = document.getElementById("ecgConditionSelect")?.value || "NSR";
-        const condObj = ECGModule.conditions[selectedCond] || ECGModule.conditions.NSR;
+        const age     = parseInt(document.getElementById("ecgAge")?.value) || 45;
+        const gender  = document.getElementById("ecgGender")?.value        || "male";
+        const symptoms = appState.ecgState.symptoms;
+        const hasFile  = appState.ecgState.hasFile;
 
-        const features = {
-            rrInterval: document.getElementById("ecgRr")?.value || condObj.rrInterval,
-            heartRate: document.getElementById("ecgHr")?.value || condObj.heartRate,
-            qrsDuration: document.getElementById("ecgQrs")?.value || condObj.qrsDuration,
-            prInterval: document.getElementById("ecgPr")?.value || condObj.prInterval,
-            stElevation: document.getElementById("ecgSt")?.value || condObj.stElevation,
-            hrv: document.getElementById("ecgHrv")?.value || condObj.hrv
-        };
-
-        const res = ECGModule.predict(features);
+        const res = ECGModule.predict({ age, gender, symptoms, hasFile });
         appState.moduleResults.ecg = res;
 
-        // Render UI
-        document.getElementById("ecgDiagnosisName").innerText = res.conditionName;
-        document.getElementById("ecgConfidenceVal").innerText = res.confidence;
-        document.getElementById("ecgSeverityBadge").innerText = res.severity;
-        document.getElementById("ecgDescText").innerText = res.description;
-
-        // Individual Ensemble Votes Breakdown
-        const ensembleVotesContainer = document.getElementById("ecgEnsembleVotes");
-        if (ensembleVotesContainer) {
-            let html = "";
-            Object.keys(res.individualModelVotes).forEach(model => {
-                const topVoteKey = Object.keys(res.individualModelVotes[model]).reduce((a, b) => res.individualModelVotes[model][a] > res.individualModelVotes[model][b] ? a : b);
-                const votePct = (res.individualModelVotes[model][topVoteKey] * 100).toFixed(1) + "%";
-                html += `
-                    <div class="flex justify-between items-center text-xs p-2 bg-slate-900/60 rounded border border-slate-800">
-                        <span class="text-slate-300 font-medium">${model}</span>
-                        <span class="text-rose-400 font-mono font-bold">${ECGModule.conditions[topVoteKey].name.split("(")[0]} (${votePct})</span>
-                    </div>
-                `;
-            });
-            ensembleVotesContainer.innerHTML = html;
+        // Severity badge
+        const badge = document.getElementById("ecgSeverityBadge");
+        if (badge) {
+            badge.innerText = res.severity;
+            const colourMap = {
+                Normal:   "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40",
+                Mild:     "bg-sky-500/20 text-sky-300 border border-sky-500/40",
+                Moderate: "bg-amber-500/20 text-amber-300 border border-amber-500/40",
+                High:     "bg-rose-500/20 text-rose-300 border border-rose-500/40",
+                Critical: "bg-red-600/30 text-red-300 border border-red-500/60 animate-pulse"
+            };
+            badge.className = "px-2.5 py-0.5 rounded text-xs font-mono font-bold " + (colourMap[res.severity] || "badge-ecg");
         }
 
-        // Restart canvas animation
-        appState.ecgRenderer.start(selectedCond, document.getElementById("ecgLeadSelect")?.value || "Lead II");
+        // Classification labels
+        const diagEl = document.getElementById("ecgDiagnosisName");
+        if (diagEl) diagEl.innerText = res.conditionName;
+        const confEl = document.getElementById("ecgConfidenceVal");
+        if (confEl) confEl.innerText = res.confidence;
+
+        // Description box
+        const descBox  = document.getElementById("ecgDescBox");
+        const descText = document.getElementById("ecgDescText");
+        if (descBox && descText) {
+            descText.innerText = res.description;
+            descBox.classList.remove("hidden");
+        }
+
+        // Clinical guidance box
+        const clinBox = document.getElementById("ecgClinicalBox");
+        if (clinBox) {
+            const summEl = document.getElementById("ecgClinicalSummary");
+            const actEl  = document.getElementById("ecgActionList");
+            const warnEl = document.getElementById("ecgWarningText");
+            const tagEl  = document.getElementById("ecgRiskTag");
+            if (summEl) summEl.innerText = res.clinicalSummary || res.description;
+            if (tagEl)  tagEl.innerText  = res.riskTag || "";
+            if (actEl)  actEl.innerHTML  = (res.actions || []).map(a =>
+                `<li class="flex items-start gap-1.5 mt-1"><span class="text-rose-400 font-bold mt-0.5">•</span><span>${a}</span></li>`
+            ).join("");
+            if (warnEl) warnEl.innerText = res.warning || "";
+            clinBox.classList.remove("hidden");
+        }
+
+        // Canvas animation
+        if (appState.ecgRenderer) {
+            appState.ecgRenderer.start(res.predictedCode || "NSR", "Lead II");
+        }
     }
 
     // Execute Module 4: Fitness Estimation
@@ -377,17 +425,6 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("probMod").innerText = res.probabilities.moderate;
         document.getElementById("probHigh").innerText = res.probabilities.high;
 
-        // Feature Importance Contributions
-        const contribContainer = document.getElementById("riskFeatureContributions");
-        if (contribContainer) {
-            contribContainer.innerHTML = res.featureContributions.map(c => `
-                <div class="flex justify-between items-center text-xs p-2 bg-slate-900/70 rounded border border-slate-800">
-                    <span class="text-slate-300 font-medium">${c.feature}</span>
-                    <span class="font-mono font-bold ${c.status === 'critical' || c.status === 'high' ? 'text-rose-400' : (c.status === 'moderate' ? 'text-amber-400' : 'text-emerald-400')}">${c.weight}</span>
-                </div>
-            `).join("");
-        }
-
         // Clinical Recommendations
         const planContainer = document.getElementById("riskActionPlanList");
         if (planContainer) {
@@ -414,25 +451,29 @@ document.addEventListener("DOMContentLoaded", () => {
             appState.patientData = {
                 age: 26, gender: "male", height: 180, weight: 74, activityLevel: "active", dietType: "balanced", dietGoal: "muscle_gain",
                 sleepHours: 8.5, caloricIntake: 2800, exerciseMin: 75, heartRateResting: 52, stressLevel: 2,
-                symptoms: [], ecgCondition: "NSR"
+                symptoms: []
             };
+            appState.ecgState = { symptoms: [], hasFile: false };
         } else if (presetType === "hypertension") {
             appState.patientData = {
                 age: 58, gender: "female", height: 162, weight: 88, activityLevel: "light", dietType: "balanced", dietGoal: "weight_loss",
                 sleepHours: 6.0, caloricIntake: 2300, exerciseMin: 20, heartRateResting: 82, stressLevel: 7,
-                symptoms: ["fatigue", "dizziness", "chest_pain", "sob"], ecgCondition: "LBBB"
+                symptoms: ["fatigue", "dizziness", "chest_pain", "sob"]
             };
+            appState.ecgState = { symptoms: ["chest_pain", "dizziness", "shortness_breath", "fatigue", "slow_hr"], hasFile: false };
         } else if (presetType === "cardiac") {
             appState.patientData = {
                 age: 64, gender: "male", height: 172, weight: 92, activityLevel: "sedentary", dietType: "low_carb", dietGoal: "weight_loss",
                 sleepHours: 5.5, caloricIntake: 2600, exerciseMin: 10, heartRateResting: 94, stressLevel: 9,
-                symptoms: ["fever", "cough", "chest_pain", "sob", "weakness"], ecgCondition: "ST_ELEV"
+                symptoms: ["fever", "cough", "chest_pain", "sob", "weakness"]
             };
+            appState.ecgState = { symptoms: ["chest_pain", "jaw_arm_pain", "cold_sweat", "shortness_breath", "syncope", "nausea"], hasFile: false };
         }
 
         // Sync inputs in UI
         syncInputsWithState();
         renderSymptomSelector();
+        renderEcgSymptomPills();
         runCompleteHealthPipeline();
     }
 
@@ -447,7 +488,9 @@ document.addEventListener("DOMContentLoaded", () => {
         if (document.getElementById("dietGoal")) document.getElementById("dietGoal").value = d.dietGoal || "maintenance";
         if (document.getElementById("dietSleep")) document.getElementById("dietSleep").value = d.sleepHours;
 
-        if (document.getElementById("ecgConditionSelect")) document.getElementById("ecgConditionSelect").value = d.ecgCondition;
+        // ECG age & gender sync
+        if (document.getElementById("ecgAge"))    document.getElementById("ecgAge").value    = d.age;
+        if (document.getElementById("ecgGender")) document.getElementById("ecgGender").value = d.gender;
 
         if (document.getElementById("fitAge")) document.getElementById("fitAge").value = d.age;
         if (document.getElementById("fitWeight")) document.getElementById("fitWeight").value = d.weight;
@@ -472,25 +515,50 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("presetHypertension")?.addEventListener("click", () => loadPresetProfile("hypertension"));
     document.getElementById("presetCardiac")?.addEventListener("click", () => loadPresetProfile("cardiac"));
 
-    // ECG Condition Select listener
-    document.getElementById("ecgConditionSelect")?.addEventListener("change", (e) => {
-        const condObj = ECGModule.conditions[e.target.value] || ECGModule.conditions.NSR;
-        document.getElementById("ecgRr").value = condObj.rrInterval;
-        document.getElementById("ecgHr").value = condObj.heartRate;
-        document.getElementById("ecgQrs").value = condObj.qrsDuration;
-        document.getElementById("ecgPr").value = condObj.prInterval;
-        document.getElementById("ecgSt").value = condObj.stElevation;
-        document.getElementById("ecgHrv").value = condObj.hrv;
-        runEcgModule();
-    });
-
-    // ECG Lead Select listener
-    document.getElementById("ecgLeadSelect")?.addEventListener("change", (e) => {
-        appState.ecgRenderer.setLead(e.target.value);
-    });
+    // ECG file upload handler
+    const ecgFileInput = document.getElementById("ecgFileInput");
+    if (ecgFileInput) {
+        ecgFileInput.addEventListener("change", (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            appState.ecgState.hasFile = true;
+            // Show status bar
+            const statusEl = document.getElementById("ecgFileStatus");
+            const nameEl   = document.getElementById("ecgFileName");
+            const sizeEl   = document.getElementById("ecgFileSize");
+            if (statusEl) statusEl.classList.remove("hidden");
+            if (nameEl)   nameEl.innerText = file.name;
+            if (sizeEl)   sizeEl.innerText = (file.size / 1024).toFixed(1) + " KB";
+            // Show image thumbnail if it's an image
+            if (file.type.startsWith("image/")) {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const wrap = document.getElementById("ecgImagePreviewWrap");
+                    const img  = document.getElementById("ecgImagePreview");
+                    if (img)  img.src = ev.target.result;
+                    if (wrap) wrap.classList.remove("hidden");
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    }
+    // File remove button
+    const ecgFileRemove = document.getElementById("ecgFileRemove");
+    if (ecgFileRemove) {
+        ecgFileRemove.addEventListener("click", () => {
+            appState.ecgState.hasFile = false;
+            const fileInput = document.getElementById("ecgFileInput");
+            if (fileInput) fileInput.value = "";
+            const statusEl = document.getElementById("ecgFileStatus");
+            if (statusEl) statusEl.classList.add("hidden");
+            const wrap = document.getElementById("ecgImagePreviewWrap");
+            if (wrap) wrap.classList.add("hidden");
+        });
+    }
 
     // Initial render
     renderSymptomSelector();
+    renderEcgSymptomPills();
     runDietModule();
     runDiseaseModule();
     runEcgModule();

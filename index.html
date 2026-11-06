@@ -451,107 +451,138 @@
         <!-- TAB 4: ECG CLASSIFICATION MODULE (Ensemble Learning) -->
         <section id="tab-ecg" class="tab-panel hidden space-y-6">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <!-- Controls & Presets -->
+                <!-- Patient Info & ECG Upload -->
                 <div class="glass-panel rounded-2xl p-5 space-y-4">
                     <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                         <h3 class="text-sm font-bold text-rose-400 flex items-center gap-2">
-                            <span>🫀</span> ECG Lead & Anomaly Selector
+                            <span>🫀</span> Patient ECG Analysis
                         </h3>
                         <span class="text-[10px] px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 font-mono">Soft Ensemble</span>
                     </div>
 
                     <div class="space-y-3 text-xs">
+                        <!-- Age & Gender -->
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-slate-400 mb-1">Age</label>
+                                <input type="number" id="ecgAge" value="45" min="1" max="120"
+                                    class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-rose-500 transition-all">
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 mb-1">Gender</label>
+                                <select id="ecgGender" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-rose-500 transition-all">
+                                    <option value="male">Male</option>
+                                    <option value="female">Female</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Cardiac Symptoms -->
                         <div>
-                            <label class="block text-slate-400 mb-1">Diagnostic Condition Preset</label>
-                            <select id="ecgConditionSelect" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
-                                <option value="NSR">Normal Sinus Rhythm (NSR)</option>
-                                <option value="AF">Atrial Fibrillation (AF)</option>
-                                <option value="LBBB">Left Bundle Branch Block (LBBB)</option>
-                                <option value="RBBB" selected>Right Bundle Branch Block (RBBB)</option>
-                                <option value="ST_ELEV">ST Elevation / Myocardial Ischemia</option>
-                                <option value="AV_BLOCK_1">1st Degree AV Block</option>
-                            </select>
+                            <label class="block text-slate-400 mb-1.5">Cardiac / Related Symptoms <span class="text-slate-500">(select all that apply)</span></label>
+                            <div id="ecgSymptomPills" class="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto pr-1"></div>
                         </div>
 
+                        <!-- ECG Report Upload -->
                         <div>
-                            <label class="block text-slate-400 mb-1">Lead Display</label>
-                            <select id="ecgLeadSelect" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
-                                <option value="Lead II" selected>Lead II (Standard Telemetry)</option>
-                                <option value="Lead I">Lead I</option>
-                                <option value="V1">V1 (Precordial)</option>
-                                <option value="V5">V5 (Lateral)</option>
-                            </select>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="block text-slate-400 mb-0.5">RR Interval (ms)</label>
-                                <input type="number" id="ecgRr" value="780" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 font-mono">
+                            <label class="block text-slate-400 mb-1.5">Upload ECG Report <span class="text-slate-500">(Image / PDF)</span></label>
+                            <label for="ecgFileInput" id="ecgUploadZone"
+                                class="flex flex-col items-center justify-center gap-2 w-full h-28 border-2 border-dashed border-rose-500/30 rounded-xl bg-slate-900/60 hover:border-rose-500/60 hover:bg-rose-950/20 cursor-pointer transition-all group">
+                                <svg class="w-7 h-7 text-rose-400/60 group-hover:text-rose-400 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                                </svg>
+                                <span class="text-[11px] text-slate-400 group-hover:text-slate-200 transition-all text-center px-2">
+                                    Click to upload ECG image or PDF<br>
+                                    <span class="text-slate-500">PNG, JPG, PDF &mdash; up to 10 MB</span>
+                                </span>
+                                <input type="file" id="ecgFileInput" accept="image/*,.pdf" class="hidden">
+                            </label>
+                            <!-- File status bar -->
+                            <div id="ecgFileStatus" class="hidden mt-2 flex items-center gap-2 p-2 bg-rose-950/30 border border-rose-500/30 rounded-lg">
+                                <span class="text-rose-400 text-base">&#128196;</span>
+                                <div class="flex-1 min-w-0">
+                                    <p id="ecgFileName" class="text-[11px] text-rose-300 font-medium truncate"></p>
+                                    <p id="ecgFileSize" class="text-[10px] text-slate-500"></p>
+                                </div>
+                                <button type="button" id="ecgFileRemove" class="text-slate-500 hover:text-rose-400 transition-all text-lg leading-none">&times;</button>
                             </div>
-                            <div>
-                                <label class="block text-slate-400 mb-0.5">Heart Rate (BPM)</label>
-                                <input type="number" id="ecgHr" value="77" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 font-mono">
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="block text-slate-400 mb-0.5">QRS Duration (ms)</label>
-                                <input type="number" id="ecgQrs" value="135" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 font-mono">
-                            </div>
-                            <div>
-                                <label class="block text-slate-400 mb-0.5">PR Interval (ms)</label>
-                                <input type="number" id="ecgPr" value="165" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 font-mono">
+                            <!-- Image thumbnail preview -->
+                            <div id="ecgImagePreviewWrap" class="hidden mt-2">
+                                <img id="ecgImagePreview" src="" alt="ECG Preview" class="w-full rounded-lg border border-rose-500/30 max-h-28 object-contain bg-slate-950">
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="block text-slate-400 mb-0.5">ST Elevation (mV)</label>
-                                <input type="number" step="0.05" id="ecgSt" value="0.05" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 font-mono">
-                            </div>
-                            <div>
-                                <label class="block text-slate-400 mb-0.5">HRV (ms)</label>
-                                <input type="number" id="ecgHrv" value="40" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 font-mono">
-                            </div>
-                        </div>
-
-                        <button id="btnRunEcg" class="w-full py-2 bg-rose-600 hover:bg-rose-500 text-white font-semibold rounded-lg shadow-lg shadow-rose-600/20 transition-all">
-                            Classify ECG Pattern
+                        <button id="btnRunEcg"
+                            class="w-full py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-semibold rounded-lg shadow-lg shadow-rose-600/20 transition-all flex items-center justify-center gap-2">
+                            <span>🫀</span> Analyse ECG &amp; Classify
                         </button>
                     </div>
                 </div>
 
-                <!-- Canvas Visualizer & Output -->
+                <!-- Results Panel -->
                 <div class="lg:col-span-2 glass-panel rounded-2xl p-5 space-y-4">
                     <div class="flex justify-between items-center border-b border-slate-800 pb-3">
-                        <h3 class="text-sm font-bold text-slate-200">Real-Time Telemetry Sweep Canvas</h3>
-                        <span id="ecgSeverityBadge" class="px-2.5 py-0.5 rounded text-xs badge-ecg font-mono font-bold">Moderate</span>
+                        <h3 class="text-sm font-bold text-slate-200">ECG Rhythm Classification Output</h3>
+                        <span id="ecgSeverityBadge" class="px-2.5 py-0.5 rounded text-xs badge-ecg font-mono font-bold">Awaiting Input</span>
                     </div>
 
                     <!-- ECG Canvas Display -->
                     <div class="ecg-frame bg-slate-950 rounded-xl p-1">
-                        <canvas id="ecgCanvas" class="w-full h-56 rounded-lg"></canvas>
+                        <canvas id="ecgCanvas" class="w-full h-48 rounded-lg"></canvas>
                     </div>
 
+                    <!-- Classification Result Cards -->
                     <div class="grid grid-cols-2 gap-3">
                         <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3">
                             <span class="text-[10px] text-slate-400 uppercase">Ensemble Classification Label</span>
-                            <h4 id="ecgDiagnosisName" class="text-lg font-bold text-rose-400 mt-0.5">Right Bundle Branch Block (RBBB)</h4>
+                            <h4 id="ecgDiagnosisName" class="text-base font-bold text-rose-400 mt-0.5 leading-snug">&mdash;</h4>
                         </div>
                         <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3 text-right">
                             <span class="text-[10px] text-slate-400 uppercase">Weighted Voting Confidence</span>
-                            <div id="ecgConfidenceVal" class="text-2xl font-bold font-mono text-rose-400">93.5%</div>
+                            <div id="ecgConfidenceVal" class="text-2xl font-bold font-mono text-rose-400">&mdash;</div>
                         </div>
                     </div>
 
-                    <!-- Soft Voting Breakdown -->
-                    <div class="space-y-2">
-                        <h4 class="text-xs font-semibold text-slate-300">Ensemble Standalone Model Voting Consensus</h4>
-                        <div id="ecgEnsembleVotes" class="grid grid-cols-2 gap-2"></div>
+                    <!-- ECG Description -->
+                    <div id="ecgDescBox" class="hidden p-3 bg-rose-950/20 border border-rose-500/20 rounded-xl text-xs">
+                        <p id="ecgDescText" class="text-slate-300 leading-relaxed"></p>
                     </div>
+
+                    <!-- Clinical Guidance Box -->
+                    <div id="ecgClinicalBox" class="hidden p-3.5 bg-gradient-to-r from-rose-950/30 via-slate-900/60 to-slate-900/80 border border-rose-500/30 rounded-xl space-y-2 text-xs">
+                        <div class="flex items-center justify-between border-b border-rose-500/20 pb-2">
+                            <span class="font-bold text-rose-300 flex items-center gap-1.5 text-xs">
+                                <span>&#128203;</span> Clinical Guidance &amp; Recommended Actions
+                            </span>
+                            <span id="ecgRiskTag" class="text-[10px] bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 rounded font-mono text-rose-400"></span>
+                        </div>
+                        <div>
+                            <span class="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold mb-0.5">What This Means:</span>
+                            <p id="ecgClinicalSummary" class="text-slate-200 leading-relaxed"></p>
+                        </div>
+                        <div>
+                            <span class="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold mb-0.5">Recommended Steps:</span>
+                            <ul id="ecgActionList" class="space-y-1.5 text-slate-300"></ul>
+                        </div>
+                        <div class="p-2.5 bg-slate-950/70 rounded-lg border border-amber-500/30 flex items-start gap-2">
+                            <span class="text-amber-400 text-sm flex-shrink-0">&#9888;&#65039;</span>
+                            <p id="ecgWarningText" class="text-[11px] text-amber-200 leading-snug"></p>
+                        </div>
+                    </div>
+
                 </div>
             </div>
+
+            <!-- Hidden legacy fields: keep IDs so risk-module & canvas still work -->
+            <input type="hidden" id="ecgConditionSelect" value="NSR">
+            <input type="hidden" id="ecgLeadSelect" value="Lead II">
+            <input type="hidden" id="ecgRr" value="800">
+            <input type="hidden" id="ecgHr" value="75">
+            <input type="hidden" id="ecgQrs" value="85">
+            <input type="hidden" id="ecgPr" value="160">
+            <input type="hidden" id="ecgSt" value="0.0">
+            <input type="hidden" id="ecgHrv" value="45">
         </section>
 
         <!-- TAB 5: FITNESS ESTIMATION MODULE (Linear Regression) -->
@@ -589,15 +620,10 @@
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="block text-slate-400 mb-0.5">Sleep (Hours)</label>
-                                <input type="number" step="0.5" id="fitSleep" value="7.5" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
-                            </div>
-                            <div>
-                                <label class="block text-slate-400 mb-0.5">Calories Intake</label>
-                                <input type="number" id="fitCalories" value="2300" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
-                            </div>
+                        <div>
+                            <label class="block text-slate-400 mb-0.5">Sleep (Hours)</label>
+                            <input type="number" step="0.5" id="fitSleep" value="7.5" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200">
+                            <input type="hidden" id="fitCalories" value="2200">
                         </div>
 
                         <div class="grid grid-cols-2 gap-2">
@@ -680,18 +706,9 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- Feature Contributions -->
-                    <div class="space-y-2">
-                        <h4 class="text-xs font-semibold text-slate-300">Feature Importance Risk Weightings</h4>
-                        <div id="riskFeatureContributions" class="space-y-2"></div>
-                    </div>
-
-                    <!-- Action Plan -->
-                    <div class="space-y-2">
-                        <h4 class="text-xs font-semibold text-slate-300">Clinical Action & Lifestyle Recommendations</h4>
-                        <ul id="riskActionPlanList" class="space-y-2"></ul>
-                    </div>
+                <div class="space-y-2">
+                    <h4 class="text-xs font-semibold text-slate-300">Clinical Action &amp; Lifestyle Recommendations</h4>
+                    <ul id="riskActionPlanList" class="space-y-2"></ul>
                 </div>
             </div>
         </section>
