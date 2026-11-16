@@ -12,13 +12,13 @@ const DEMO_ACCOUNTS = [
         badge: "Full Clinical CDS Access"
     },
     {
-        name: "Prof. Reviewer (IEEE)",
-        email: "evaluator@ieee.org",
+        name: "Prof. Reviewer",
+        email: "evaluator@healthml.io",
         username: "evaluator",
         password: "evaluator123",
         role: "Research Evaluator",
         avatar: "🔬",
-        badge: "Experimental Benchmarks"
+        badge: "Model Validation"
     },
     {
         name: "Alex Morgan",
@@ -27,7 +27,7 @@ const DEMO_ACCOUNTS = [
         password: "patient123",
         role: "Monitored Patient",
         avatar: "👤",
-        badge: "Wearable & Diet Telemetry"
+        badge: "Live Vitals & Diet Telemetry"
     },
     {
         name: "System Administrator",
@@ -243,7 +243,7 @@ export default function Login({ onLoginSuccess }) {
                                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 transition-all"
                                 >
                                     <option value="doctor">Clinician / Doctor (Full CDS Access)</option>
-                                    <option value="evaluator">Research Evaluator (Paper Benchmarks)</option>
+                                    <option value="evaluator">Research Evaluator / CDS Oversight</option>
                                     <option value="patient">Monitored Patient</option>
                                 </select>
                             </div>
@@ -300,11 +300,6 @@ export default function Login({ onLoginSuccess }) {
                     </div>
                 </div>
             </main>
-
-            {/* Footer */}
-            <footer className="border-t border-slate-900 bg-slate-950/80 py-3 text-center text-xs text-slate-500 z-10">
-                A Modular Machine Learning Framework for Personalized Health Monitoring and Risk Prediction &copy; 2025-2026
-            </footer>
         </div>
     );
 }

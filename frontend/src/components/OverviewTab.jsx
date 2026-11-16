@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight, CheckCircle2, Cpu, ShieldCheck, Zap } from 'lucide-react';
+import { ArrowRight, Cpu, Zap } from 'lucide-react';
 
 export default function OverviewTab({ onSelectTab, onRunFullScan, results }) {
     const modules = [
@@ -76,7 +76,7 @@ export default function OverviewTab({ onSelectTab, onRunFullScan, results }) {
             <div className="rounded-2xl p-6 bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-slate-800 shadow-2xl relative overflow-hidden">
                 <div className="relative z-10 max-w-3xl space-y-3">
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono bg-indigo-500/10 text-indigo-300 border border-indigo-500/30">
-                        <Cpu className="w-3.5 h-3.5" /> IEEE 2025 Multi-Domain Architecture
+                        <Cpu className="w-3.5 h-3.5" /> Autonomous Multi-Domain ML Architecture
                     </div>
                     <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
                         Modular Machine Learning for Integrated Health Risk Surveillance
@@ -92,10 +92,10 @@ export default function OverviewTab({ onSelectTab, onRunFullScan, results }) {
                             <Zap className="w-4 h-4" /> Run 5-Module Sequential Scan
                         </button>
                         <button
-                            onClick={() => onSelectTab('benchmarks')}
+                            onClick={() => onSelectTab('live')}
                             className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 font-medium text-xs border border-slate-700 transition-all flex items-center gap-1.5"
                         >
-                            View IEEE Paper Benchmarks <ArrowRight className="w-3.5 h-3.5" />
+                            <span>🔴</span> View Real-Time Biosensors <ArrowRight className="w-3.5 h-3.5" />
                         </button>
                     </div>
                 </div>
@@ -105,7 +105,7 @@ export default function OverviewTab({ onSelectTab, onRunFullScan, results }) {
             <div className="rounded-2xl p-6 bg-slate-900/60 border border-slate-800 shadow-xl space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                     <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                        <span>🔄</span> Sequential Pipeline Workflow (Figure 1 Methodology)
+                        <span>🔄</span> Sequential Pipeline Workflow
                     </h3>
                     <span className="text-[11px] text-indigo-400 font-mono">End-to-End Processing</span>
                 </div>
@@ -133,51 +133,6 @@ export default function OverviewTab({ onSelectTab, onRunFullScan, results }) {
                             </div>
                         </div>
                     ))}
-                </div>
-            </div>
-
-            {/* Detailed Module Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {modules.map((m) => (
-                    <div
-                        key={m.id}
-                        className="rounded-2xl p-5 bg-slate-900/80 border border-slate-800/80 shadow-lg hover:border-slate-700 transition-all space-y-3 flex flex-col justify-between"
-                    >
-                        <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                                <span className={`text-xs font-mono font-bold ${m.text}`}>{m.algo}</span>
-                                <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">{m.cv}</span>
-                            </div>
-                            <h3 className="text-base font-bold text-slate-100">{m.name}</h3>
-                            <p className="text-xs text-slate-400 leading-relaxed">{m.desc}</p>
-                        </div>
-
-                        <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between">
-                            <span className="text-xs font-mono font-bold text-emerald-400">{m.acc}</span>
-                            <button
-                                onClick={() => onSelectTab(m.id)}
-                                className="text-xs text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 transition-all"
-                            >
-                                Open Module <ArrowRight className="w-3.5 h-3.5" />
-                            </button>
-                        </div>
-                    </div>
-                ))}
-
-                {/* System Specs Card */}
-                <div className="rounded-2xl p-5 bg-gradient-to-br from-indigo-950/30 to-slate-900 border border-indigo-500/20 shadow-lg space-y-3 flex flex-col justify-between">
-                    <div className="space-y-2">
-                        <span className="text-xs font-mono font-bold text-indigo-400">IEEE Paper Specifications</span>
-                        <h3 className="text-base font-bold text-slate-100">Validated Validation Strategy</h3>
-                        <ul className="text-xs text-slate-300 space-y-1.5 pt-1">
-                            <li className="flex items-center gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> 5-Fold Stratified Cross-Validation on all models</li>
-                            <li className="flex items-center gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> MIT-BIH & PhysioNet Arrhythmia DB for ECG</li>
-                            <li className="flex items-center gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Calibrated probability outputs with Brier scores</li>
-                        </ul>
-                    </div>
-                    <div className="pt-3 border-t border-slate-800/80 text-[11px] text-slate-400 font-mono">
-                        Real-time React 19 + Python REST API Architecture
-                    </div>
                 </div>
             </div>
         </div>

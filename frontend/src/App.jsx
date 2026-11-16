@@ -1,13 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Navbar from './components/Navbar';
 import TabNavigation from './components/TabNavigation';
+import LiveTelemetryTicker from './components/LiveTelemetryTicker';
+import LiveTelemetryTab from './components/LiveTelemetryTab';
 import OverviewTab from './components/OverviewTab';
 import DietTab from './components/DietTab';
 import DiseaseTab from './components/DiseaseTab';
 import EcgTab from './components/EcgTab';
 import FitnessTab from './components/FitnessTab';
 import RiskTab from './components/RiskTab';
-import BenchmarksTab from './components/BenchmarksTab';
 import Login from './components/Login';
 
 import { DietModule } from './modules/dietModule';
@@ -15,7 +16,7 @@ import { DiseaseModule } from './modules/diseaseModule';
 import { ECGModule } from './modules/ecgModule';
 import { FitnessModule } from './modules/fitnessModule';
 import { RiskModule } from './modules/riskModule';
-import { api } from './services/api';
+import { liveTelemetry } from './services/liveTelemetryService';
 
 export default function App() {
     // 1. Auth State
@@ -28,8 +29,8 @@ export default function App() {
         }
     });
 
-    // 2. Active Tab Navigation
-    const [activeTab, setActiveTab] = useState('overview');
+    // 2. Active Tab Navigation - Default to 'live' for real-time biosensor demonstration
+    const [activeTab, setActiveTab] = useState('live');
 
     // 3. Centralized Patient Data State
     const [patientData, setPatientData] = useState({
@@ -42,10 +43,10 @@ export default function App() {
         dietGoal: 'maintenance',
         sleepHours: 6.5,
         exerciseMin: 35,
-        heartRateResting: 74,
-        stressLevel: 6,
-        symptoms: ['cough', 'fatigue', 'headache', 'chest_pain'],
-        ecgSymptoms: ['chest_pain', 'palpitations', 'shortness_breath'],
+        heartRateResting: 72,
+        stressLevel: 4,
+        symptoms: [],
+        ecgSymptoms: [],
         ecgHasFile: false
     });
 
@@ -64,11 +65,63 @@ export default function App() {
         risk: null
     });
 
-    const [isScanning, setIsScanning] = useState(false);
+    // 6. Real-Time Telemetry & Audit Stream State
+    const [telemetry, setTelemetry] = useState(null);
+    const [isLiveStreaming, setIsLiveStreaming] = useState(true);
+    const [auditLog, setAuditLog] = useState([
+        { time: new Date().toLocaleTimeString(), level: 'INFO', message: 'Autonomous IoT Biosensor Telemetry Engine initiated.' },
+        { time: new Date().toLocaleTimeString(), level: 'INFO', message: 'Real-time sliding-window ML inference active.' }
+    ]);
 
-    // Initial computation on mount
+    const [isScanning, setIsScanning] = useState(false);
+    const lastInferenceTimeRef = useRef(0);
+
+    // Subscribe to Real-Time Telemetry Stream on mount
     useEffect(() => {
+        liveTelemetry.start();
+
+        const unsubscribe = liveTelemetry.subscribe((packet) => {
+            setTelemetry(packet);
+
+            // Automatically feed live telemetry into patient state without user input!
+            setPatientData((prev) => {
+                const updated = {
+                    ...prev,
+                    heartRateResting: packet.heartRate,
+                    symptoms: packet.activeSymptoms || [],
+                    ecgSymptoms: packet.activeSymptoms || []
+                };
+
+                // Throttled Sliding-Window ML Inference Loop (runs every 1.2s on live stream)
+                const now = performance.now();
+                if (now - lastInferenceTimeRef.current > 1200) {
+                    lastInferenceTimeRef.current = now;
+                    executeSlidingWindowInference(updated, packet);
+                }
+
+                return updated;
+            });
+
+            // Log critical/high events to audit trail
+            if (packet.severity === 'Critical' || packet.severity === 'High') {
+                setAuditLog((prev) => [
+                    {
+                        time: packet.timestamp,
+                        level: packet.severity === 'Critical' ? 'CRITICAL' : 'HIGH',
+                        message: `Telemetry Anomaly detected: ${packet.ecgCondition} rhythm with HR ${packet.heartRate} BPM, SpO2 ${packet.spO2}%.`
+                    },
+                    ...prev.slice(0, 30)
+                ]);
+            }
+        });
+
+        // Initial run
         executeFullPipeline();
+
+        return () => {
+            unsubscribe();
+            liveTelemetry.stop();
+        };
     }, []);
 
     const handleChangePatientData = (field, val) => {
@@ -79,7 +132,106 @@ export default function App() {
         setDiseaseContext((prev) => ({ ...prev, [field]: val }));
     };
 
-    // Disease symptom toggle
+    // Automated Sliding-Window Real-Time ML Inference
+    const executeSlidingWindowInference = (currentPatient, packet) => {
+        const diet = DietModule.predict(currentPatient);
+        const disease = DiseaseModule.predict(currentPatient.symptoms, {
+            ...diseaseContext,
+            age: currentPatient.age,
+            restingHeartRate: packet ? packet.heartRate : currentPatient.heartRateResting
+        });
+        const ecg = ECGModule.predict({
+            age: currentPatient.age,
+            gender: currentPatient.gender,
+            symptoms: currentPatient.ecgSymptoms,
+            hasFile: currentPatient.ecgHasFile
+        });
+        const fitness = FitnessModule.predict({
+            ...currentPatient,
+            heartRateResting: packet ? packet.heartRate : currentPatient.heartRateResting
+        });
+        const risk = RiskModule.predict({
+            bmi: diet.bmi,
+            diseaseLabel: disease.primaryDiagnosis,
+            diseaseSeverity: disease.severity,
+            ecgLabel: packet ? packet.ecgCondition : ecg.conditionName,
+            ecgSeverity: packet ? packet.severity : ecg.severity,
+            fitnessScore: fitness.fitnessScore,
+            dietRating: diet.dietScore
+        });
+
+        setResults({ diet, disease, ecg, fitness, risk });
+    };
+
+    // Full Pipeline Execution
+    const executeFullPipeline = () => {
+        setIsScanning(true);
+        executeSlidingWindowInference(patientData, telemetry);
+        setIsScanning(false);
+    };
+
+    const handleRunFullScan = () => {
+        executeFullPipeline();
+        setActiveTab('risk');
+    };
+
+    // Toggle Live Telemetry Stream
+    const handleToggleLiveStream = () => {
+        if (isLiveStreaming) {
+            liveTelemetry.stop();
+            setIsLiveStreaming(false);
+            setAuditLog((prev) => [
+                { time: new Date().toLocaleTimeString(), level: 'INFO', message: 'Live sensor telemetry stream paused by clinician.' },
+                ...prev
+            ]);
+        } else {
+            liveTelemetry.start();
+            setIsLiveStreaming(true);
+            setAuditLog((prev) => [
+                { time: new Date().toLocaleTimeString(), level: 'INFO', message: 'Live sensor telemetry stream resumed.' },
+                ...prev
+            ]);
+        }
+    };
+
+    // Scenario Change Handler (Wearable Stream)
+    const handleScenarioChange = (scenarioId) => {
+        liveTelemetry.setScenario(scenarioId);
+        setAuditLog((prev) => [
+            {
+                time: new Date().toLocaleTimeString(),
+                level: scenarioId === 'stemi' ? 'CRITICAL' : scenarioId === 'afib' || scenarioId === 'hypoxia' ? 'HIGH' : 'INFO',
+                message: `IoT Biosensor stream switched to scenario: ${scenarioId.toUpperCase()}.`
+            },
+            ...prev
+        ]);
+    };
+
+    // Live Webcam Optical PPG Detection
+    const handleApplyLiveBpm = (bpm) => {
+        setPatientData((prev) => ({ ...prev, heartRateResting: bpm }));
+        setAuditLog((prev) => [
+            { time: new Date().toLocaleTimeString(), level: 'INFO', message: `Webcam Optical PPG captured live heart rate: ${bpm} BPM.` },
+            ...prev
+        ]);
+        executeSlidingWindowInference({ ...patientData, heartRateResting: bpm }, telemetry);
+    };
+
+    // Live Audio Cough / Stridor Detection
+    const handleApplyAudioSymptom = (symId) => {
+        setPatientData((prev) => {
+            if (prev.symptoms.includes(symId)) return prev;
+            const updatedSymptoms = [...prev.symptoms, symId];
+            setAuditLog((l) => [
+                { time: new Date().toLocaleTimeString(), level: 'WARN', message: `Live Audio Auscultation detected acoustic event: ${symId.toUpperCase()}.` },
+                ...l
+            ]);
+            executeSlidingWindowInference({ ...prev, symptoms: updatedSymptoms }, telemetry);
+            return { ...prev, symptoms: updatedSymptoms };
+        });
+    };
+
+    // Disease symptom toggle (Manual override)
     const handleToggleDiseaseSymptom = (id) => {
         setPatientData((prev) => {
             const nextSymptoms = prev.symptoms.includes(id)
@@ -87,7 +239,6 @@ export default function App() {
                 : [...prev.symptoms, id];
             const nextState = { ...prev, symptoms: nextSymptoms };
 
-            // Real-time re-run of disease module
             const dRes = DiseaseModule.predict(nextSymptoms, {
                 ...diseaseContext,
                 age: prev.age,
@@ -105,7 +256,7 @@ export default function App() {
         setResults((r) => ({ ...r, disease: dRes }));
     };
 
-    // Module execution runners
+    // Manual Module Execution runners
     const handleRunDiet = () => {
         const res = DietModule.predict(patientData);
         setResults((prev) => ({ ...prev, diet: res }));
@@ -136,153 +287,12 @@ export default function App() {
     };
 
     const handleRunRisk = () => {
-        // Gather latest sub-module results
-        const dRes = results.diet || DietModule.predict(patientData);
-        const disRes = results.disease || DiseaseModule.predict(patientData.symptoms, diseaseContext);
-        const ecgRes = results.ecg || ECGModule.predict({
-            age: patientData.age,
-            gender: patientData.gender,
-            symptoms: patientData.ecgSymptoms,
-            hasFile: patientData.ecgHasFile
-        });
-        const fitRes = results.fitness || FitnessModule.predict(patientData);
-
-        const rRes = RiskModule.predict({
-            bmi: dRes.bmi,
-            diseaseLabel: disRes.primaryDiagnosis,
-            diseaseSeverity: disRes.severity,
-            ecgLabel: ecgRes.conditionName,
-            ecgSeverity: ecgRes.severity,
-            fitnessScore: fitRes.fitnessScore,
-            dietRating: dRes.dietScore
-        });
-
-        setResults({
-            diet: dRes,
-            disease: disRes,
-            ecg: ecgRes,
-            fitness: fitRes,
-            risk: rRes
-        });
-    };
-
-    // Sequential 5-Module Execution
-    const executeFullPipeline = () => {
-        setIsScanning(true);
-
-        const diet = DietModule.predict(patientData);
-        const disease = DiseaseModule.predict(patientData.symptoms, {
-            ...diseaseContext,
-            age: patientData.age,
-            restingHeartRate: patientData.heartRateResting
-        });
-        const ecg = ECGModule.predict({
-            age: patientData.age,
-            gender: patientData.gender,
-            symptoms: patientData.ecgSymptoms,
-            hasFile: patientData.ecgHasFile
-        });
-        const fitness = FitnessModule.predict(patientData);
-        const risk = RiskModule.predict({
-            bmi: diet.bmi,
-            diseaseLabel: disease.primaryDiagnosis,
-            diseaseSeverity: disease.severity,
-            ecgLabel: ecg.conditionName,
-            ecgSeverity: ecg.severity,
-            fitnessScore: fitness.fitnessScore,
-            dietRating: diet.dietScore
-        });
-
-        setResults({ diet, disease, ecg, fitness, risk });
-        setIsScanning(false);
-    };
-
-    const handleRunFullScan = () => {
         executeFullPipeline();
-        setActiveTab('risk');
     };
 
-    // Patient Profile Presets
     const handleLoadPreset = (presetType) => {
-        let newPatient = { ...patientData };
-
-        if (presetType === 'athlete') {
-            newPatient = {
-                age: 26,
-                gender: 'male',
-                height: 180,
-                weight: 74,
-                activityLevel: 'active',
-                dietType: 'balanced',
-                dietGoal: 'muscle_gain',
-                sleepHours: 8.5,
-                exerciseMin: 75,
-                heartRateResting: 52,
-                stressLevel: 2,
-                symptoms: [],
-                ecgSymptoms: [],
-                ecgHasFile: false
-            };
-        } else if (presetType === 'hypertension') {
-            newPatient = {
-                age: 58,
-                gender: 'female',
-                height: 162,
-                weight: 88,
-                activityLevel: 'light',
-                dietType: 'balanced',
-                dietGoal: 'weight_loss',
-                sleepHours: 6.0,
-                exerciseMin: 20,
-                heartRateResting: 82,
-                stressLevel: 7,
-                symptoms: ['fatigue', 'dizziness', 'chest_pain', 'sob'],
-                ecgSymptoms: ['chest_pain', 'dizziness', 'shortness_breath', 'fatigue', 'slow_hr'],
-                ecgHasFile: false
-            };
-        } else if (presetType === 'cardiac') {
-            newPatient = {
-                age: 64,
-                gender: 'male',
-                height: 172,
-                weight: 92,
-                activityLevel: 'sedentary',
-                dietType: 'low_carb',
-                dietGoal: 'weight_loss',
-                sleepHours: 5.5,
-                exerciseMin: 10,
-                heartRateResting: 94,
-                stressLevel: 9,
-                symptoms: ['fever', 'cough', 'chest_pain', 'sob', 'weakness'],
-                ecgSymptoms: ['chest_pain', 'jaw_arm_pain', 'cold_sweat', 'shortness_breath', 'syncope', 'nausea'],
-                ecgHasFile: false
-            };
-        }
-
-        setPatientData(newPatient);
-
-        // Run all models for new preset
-        const diet = DietModule.predict(newPatient);
-        const disease = DiseaseModule.predict(newPatient.symptoms, diseaseContext);
-        const ecg = ECGModule.predict({
-            age: newPatient.age,
-            gender: newPatient.gender,
-            symptoms: newPatient.ecgSymptoms,
-            hasFile: newPatient.ecgHasFile
-        });
-        const fitness = FitnessModule.predict(newPatient);
-        const risk = RiskModule.predict({
-            bmi: diet.bmi,
-            diseaseLabel: disease.primaryDiagnosis,
-            diseaseSeverity: disease.severity,
-            ecgLabel: ecg.conditionName,
-            ecgSeverity: ecg.severity,
-            fitnessScore: fitness.fitnessScore,
-            dietRating: diet.dietScore
-        });
-
-        setResults({ diet, disease, ecg, fitness, risk });
-        setActiveTab('risk');
+        handleScenarioChange(presetType);
+        setActiveTab('live');
     };
 
     const handleSignOut = () => {
@@ -296,20 +306,43 @@ export default function App() {
 
     return (
         <div className="min-h-screen bg-[#070a12] text-slate-100 flex flex-col font-sans selection:bg-indigo-500/30">
-            {/* Navigation Header */}
+            {/* Top Navigation Bar */}
             <Navbar
                 session={session}
                 onSignOut={handleSignOut}
                 onLoadPreset={handleLoadPreset}
                 onRunFullScan={handleRunFullScan}
                 isScanning={isScanning}
+                isLiveStreaming={isLiveStreaming}
+                onToggleLiveStream={handleToggleLiveStream}
+                onOpenLiveTab={() => setActiveTab('live')}
             />
 
-            {/* Sub-Header Tabs */}
+            {/* Continuous Real-Time Telemetry Vitals Ticker HUD */}
+            <LiveTelemetryTicker
+                telemetry={telemetry}
+                riskResult={results.risk}
+                isLive={isLiveStreaming}
+                onOpenLiveTab={() => setActiveTab('live')}
+            />
+
+            {/* Multi-Domain Module Navigation Tabs */}
             <TabNavigation activeTab={activeTab} onSelectTab={setActiveTab} />
 
             {/* Main Application Content Area */}
             <main className="max-w-7xl mx-auto px-4 py-6 flex-1 w-full space-y-6">
+                {/* Real-Time Live Biosensors & Telemetry Center */}
+                {activeTab === 'live' && (
+                    <LiveTelemetryTab
+                        telemetry={telemetry}
+                        onScenarioChange={handleScenarioChange}
+                        onApplyLiveBpm={handleApplyLiveBpm}
+                        onApplyAudioSymptom={handleApplyAudioSymptom}
+                        auditLog={auditLog}
+                        riskResult={results.risk}
+                    />
+                )}
+
                 {activeTab === 'overview' && (
                     <OverviewTab
                         onSelectTab={setActiveTab}
@@ -364,16 +397,7 @@ export default function App() {
                         isRunning={isScanning}
                     />
                 )}
-
-                {activeTab === 'benchmarks' && <BenchmarksTab />}
             </main>
-
-            {/* Footer */}
-            <footer className="border-t border-slate-900 bg-slate-950 py-4 text-center text-xs text-slate-500 mt-auto">
-                <p>
-                    A Modular Machine Learning Framework for Personalized Health Monitoring and Risk Prediction &copy; 2025-2026
-                </p>
-            </footer>
         </div>
     );
 }

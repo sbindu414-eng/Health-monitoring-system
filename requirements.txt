@@ -1,5 +1,8 @@
 # Modular ML Health Monitoring Framework Requirements
-# Core backend and ML benchmark dependencies
+# Core backend, machine learning, and telemetry dependencies
 requests>=2.31.0
 numpy>=1.24.0
 pandas>=2.0.0
+scikit-learn>=1.4.0
+scipy>=1.10.0
+joblib>=1.3.0

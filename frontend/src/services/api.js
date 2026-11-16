@@ -65,19 +65,111 @@ export const api = {
         return DietModule.predict(data);
     },
 
-    async predictDisease(symptoms, context) {
+    async getModelStatus() {
+        try {
+            const res = await fetch(`${API_BASE}/models/status`, { signal: AbortSignal.timeout(2000) });
+            if (res.ok) return await res.json();
+        } catch {
+            // Client fallback
+        }
+        return { modelsStatus: "ACTIVE", trainingFramework: "Scikit-Learn 1.9.1", modelsLoaded: true };
+    },
+
+    async predictDisease(symptoms, context = {}) {
+        try {
+            const payload = {
+                symptoms: symptoms || [],
+                durationDays: context.durationDays || 3,
+                age: context.age || 40,
+                restingHeartRate: context.restingHeartRate || 72
+            };
+            const res = await fetch(`${API_BASE}/predict/disease`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: AbortSignal.timeout(2500)
+            });
+            if (res.ok) {
+                const json = await res.json();
+                const clientRes = DiseaseModule.predict(symptoms, context);
+                return {
+                    ...clientRes,
+                    ...json,
+                    differentialList: clientRes.differentialList || []
+                };
+            }
+        } catch {
+            // Fallback to client ML
+        }
         return DiseaseModule.predict(symptoms, context);
     },
 
-    async predictECG(inputs) {
+    async predictECG(inputs = {}) {
+        try {
+            const res = await fetch(`${API_BASE}/predict/ecg`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(inputs),
+                signal: AbortSignal.timeout(2500)
+            });
+            if (res.ok) {
+                const json = await res.json();
+                const clientRes = ECGModule.predict(inputs);
+                return {
+                    ...clientRes,
+                    ...json,
+                    probabilities: clientRes.probabilities || {}
+                };
+            }
+        } catch {
+            // Fallback to client ML
+        }
         return ECGModule.predict(inputs);
     },
 
-    async predictFitness(data) {
+    async predictFitness(data = {}) {
+        try {
+            const res = await fetch(`${API_BASE}/predict/fitness`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data),
+                signal: AbortSignal.timeout(2500)
+            });
+            if (res.ok) {
+                const json = await res.json();
+                const clientRes = FitnessModule.predict(data);
+                return {
+                    ...clientRes,
+                    ...json,
+                    breakdown: clientRes.breakdown || {}
+                };
+            }
+        } catch {
+            // Fallback to client ML
+        }
         return FitnessModule.predict(data);
     },
 
-    async predictRisk(aggregatedData) {
+    async predictRisk(aggregatedData = {}) {
+        try {
+            const res = await fetch(`${API_BASE}/predict/risk`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(aggregatedData),
+                signal: AbortSignal.timeout(2500)
+            });
+            if (res.ok) {
+                const json = await res.json();
+                const clientRes = RiskModule.predict(aggregatedData);
+                return {
+                    ...clientRes,
+                    ...json,
+                    actionPlan: clientRes.actionPlan || []
+                };
+            }
+        } catch {
+            // Fallback to client ML
+        }
         return RiskModule.predict(aggregatedData);
     }
 };

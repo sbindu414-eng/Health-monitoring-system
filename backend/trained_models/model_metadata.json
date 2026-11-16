@@ -1,0 +1,118 @@
+{
+  "trainedAt": "2026-11-16 21:09:32",
+  "modules": {
+    "diet": {
+      "algorithm": "Random Forest (Classifier + Regressor)",
+      "features": [
+        "age",
+        "gender",
+        "weight",
+        "height",
+        "bmi",
+        "bmr",
+        "tdee",
+        "activity",
+        "diet_goal",
+        "target_cal"
+      ],
+      "macroAccuracy": 100.0,
+      "qualityR2": 0.8833
+    },
+    "disease": {
+      "algorithm": "Multiclass Logistic Regression (Softmax)",
+      "features": [
+        "chest_pain",
+        "palpitations",
+        "shortness_of_breath",
+        "fatigue",
+        "cough",
+        "fever",
+        "dizziness",
+        "nausea",
+        "headache",
+        "joint_pain",
+        "swelling",
+        "sore_throat",
+        "wheezing",
+        "cold_sweats",
+        "abdominal_pain",
+        "trismus",
+        "syncope",
+        "duration_days",
+        "age",
+        "resting_hr"
+      ],
+      "classes": [
+        "Healthy / Low Pathology Risk",
+        "Acute Bronchitis",
+        "Viral Influenza / Upper RTI",
+        "Gastroesophageal Reflux (GERD)",
+        "Tension Headache / Migraine",
+        "Cardiovascular / Angina Strain",
+        "Musculoskeletal Strain"
+      ],
+      "accuracy": 100.0,
+      "f1Macro": 1.0
+    },
+    "ecg": {
+      "algorithm": "Weighted Soft-Voting Ensemble (RF + GradBoost + LogReg)",
+      "features": [
+        "heart_rate",
+        "rr_interval",
+        "qrs_duration",
+        "pr_interval",
+        "st_elevation",
+        "hrv",
+        "age",
+        "pain",
+        "sweat",
+        "palp"
+      ],
+      "classes": [
+        "NSR",
+        "AF",
+        "STEMI",
+        "LBBB",
+        "RBBB",
+        "AVB"
+      ],
+      "accuracy": 99.03
+    },
+    "fitness": {
+      "algorithm": "Ridge Regression with Feature Interactions",
+      "features": [
+        "age",
+        "resting_hr",
+        "sleep_hours",
+        "exercise_mins",
+        "daily_steps",
+        "stress_level",
+        "bmi"
+      ],
+      "r2Score": 0.9115,
+      "mae": 2.95
+    },
+    "risk": {
+      "algorithm": "Gradient Boosted Decision Trees",
+      "features": [
+        "diet_score",
+        "disease_prob",
+        "ecg_critical",
+        "fitness_score",
+        "age",
+        "sys_bp",
+        "dia_bp",
+        "spo2",
+        "resting_hr"
+      ],
+      "classes": [
+        "Low",
+        "Moderate",
+        "High"
+      ],
+      "accuracy": 95.71,
+      "f1Macro": 0.954
+    }
+  },
+  "benchmarkSummary": {}
+}

@@ -1,14 +1,14 @@
 import React from 'react';
-import { Home, Salad, Stethoscope, HeartPulse, Dumbbell, ShieldAlert, BarChart3 } from 'lucide-react';
+import { Home, Salad, Stethoscope, HeartPulse, Dumbbell, ShieldAlert, Radio } from 'lucide-react';
 
 const tabs = [
+    { id: 'live', label: 'Live Biosensors & Stream', icon: Radio, badge: '🔴 Real-Time', isLive: true },
     { id: 'overview', label: 'Overview & Flow', icon: Home, badge: 'Pipeline' },
     { id: 'diet', label: 'Diet Suggestion', icon: Salad, badge: 'RF 89.2%' },
     { id: 'disease', label: 'Disease Diagnosis', icon: Stethoscope, badge: 'LogReg 86.7%' },
     { id: 'ecg', label: 'ECG Classification', icon: HeartPulse, badge: 'Ensemble 93.5%' },
     { id: 'fitness', label: 'Fitness Estimation', icon: Dumbbell, badge: 'LinReg R² 0.82' },
-    { id: 'risk', label: 'Integrated Risk', icon: ShieldAlert, badge: 'XGBoost 91.3%' },
-    { id: 'benchmarks', label: 'Paper Benchmarks', icon: BarChart3, badge: 'Figures 2-9' },
+    { id: 'risk', label: 'Integrated Risk', icon: ShieldAlert, badge: 'XGBoost 91.3%' }
 ];
 
 export default function TabNavigation({ activeTab, onSelectTab }) {
@@ -27,10 +27,14 @@ export default function TabNavigation({ activeTab, onSelectTab }) {
                                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40 border-transparent'
                         }`}
                     >
-                        <Icon className={`w-4 h-4 ${isActive ? 'text-indigo-400' : 'text-slate-500'}`} />
+                        <Icon className={`w-4 h-4 ${isActive ? 'text-indigo-400' : 'text-slate-500'} ${tab.isLive ? 'text-rose-500 animate-pulse' : ''}`} />
                         <span>{tab.label}</span>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                            isActive ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'bg-slate-800 text-slate-400'
+                            tab.isLive
+                                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                : isActive
+                                ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
+                                : 'bg-slate-800 text-slate-400'
                         }`}>
                             {tab.badge}
                         </span>
@@ -40,4 +44,3 @@ export default function TabNavigation({ activeTab, onSelectTab }) {
         </nav>
     );
 }
-

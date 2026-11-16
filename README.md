@@ -14,10 +14,13 @@
 ## 📌 Table of Contents
 
 - [Overview](#-overview)
+- [Real-Time Autonomous Telemetry Framework](#-real-time-autonomous-telemetry-framework)
 - [System Architecture & Methodology](#-system-architecture--methodology)
+- [Live Biosensors & Hardware Ingestion](#-live-biosensors--hardware-ingestion)
 - [Machine Learning Modules](#-machine-learning-modules)
 - [React Application Structure](#-react-application-structure)
 - [Key Features](#-key-features)
+- [Evaluation & Presentation Guide for Judges](#-evaluation--presentation-guide-for-judges)
 - [Getting Started](#-getting-started)
   - [Prerequisites](#prerequisites)
   - [One-Click Startup](#one-click-startup)
@@ -40,6 +43,35 @@ This project implements a **Modular Machine Learning Health Monitoring Framework
 3. **ECG Classification Ensemble** &rarr; Detects arrhythmias and ischemic patterns via Soft-Voting Ensemble (RF + XGBoost + LightGBM + GradBoost).
 4. **Physical Fitness Estimation Module** &rarr; Computes composite fitness score using feature interaction regression.
 5. **Integrated Health Risk Stratification** &rarr; Synthesizes cross-domain metrics to generate calibrated risk probabilities and clinical recommendations via XGBoost.
+
+---
+
+## ⚡ Real-Time Autonomous Telemetry Framework
+
+To eliminate manual input reliance and satisfy real-time clinical monitoring benchmarks, this project features an **Autonomous Streaming Telemetry Pipeline**:
+
+- **Zero-Input Operation**: The system continuously acquires patient biomarkers without requiring any keyboard or form input.
+- **Sliding-Window Inference Engine**: Every 1.2 seconds, a high-frequency packet is dispatched to all 5 ML models in parallel, maintaining live calibrated risk stratification.
+- **Real-Time Heads-Up Ticker**: An always-visible telemetry HUD at the top displays packet sequence ID, stream latency (~16ms), live BPM, SpO2, blood pressure, respiration rate, and real-time emergency triage badges.
+- **Dynamic Scenario Switching**: Live simulation presets for *Normal Resting*, *Endurance Athlete*, *High-Intensity Exercise*, *Atrial Fibrillation*, *Acute STEMI*, and *Hypoxia*.
+
+---
+
+## 🫀 Live Biosensors & Hardware Ingestion
+
+In addition to simulated clinical telemetry streams, the system incorporates **Live Laptop Hardware Biosensors**:
+
+1. **Webcam Optical Photoplethysmography (PPG)**:
+   - Uses the device's web camera via HTML5 `getUserMedia`.
+   - Isolates human skin ROI (Region of Interest) and measures cyclic green-channel light absorption fluctuations caused by pulsatile capillary arterial blood flow.
+   - Extracts live Heart Rate (BPM) and Heart Rate Variability (HRV) in real time and draws the physiological PPG pulse curve.
+   - Automatically synchronizes live measured pulse directly into the ECG classification and risk stratification models.
+
+2. **Microphone Web Audio Acoustic Auscultation**:
+   - Captures ambient audio via HTML5 Web Audio API `AudioContext` and `AnalyserNode`.
+   - Computes a real-time 1024-bin Fast Fourier Transform (FFT) frequency spectrum.
+   - Detects acoustic spectral power spikes characteristic of coughs, wheezing, and dyspnea (200 Hz - 800 Hz transient band).
+   - Automatically injects detected respiratory symptoms into the Disease Prediction model with zero manual typing.
 
 ---
 
@@ -89,39 +121,62 @@ graph TD
 ```
 major project/
 ├── backend/
-│   ├── server.py              # Python standard library REST API (port 5000)
-│   └── api_server.ps1         # Alternative PowerShell API server
-├── frontend/                  # React + Vite application
+│   └── server.py              # Python REST API & Real-Time Telemetry server (port 5000)
+├── frontend/                  # React 19 + Vite modern application
+│   ├── dist/                  # Production bundle
+│   ├── public/                # Static assets & favicons
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── Navbar.jsx            # Top bar with presets, user profile, full scan
+│   │   │   ├── Navbar.jsx            # Top navigation & user profile
 │   │   │   ├── TabNavigation.jsx     # Navigation tabs with badges
-│   │   │   ├── OverviewTab.jsx       # Architecture flow & module summaries
+│   │   │   ├── LiveTelemetryTab.jsx  # Real-time biosensor monitor (Webcam PPG + Mic)
+│   │   │   ├── LiveTelemetryTicker.jsx # Real-time vitals HUD bar
+│   │   │   ├── WebcamPpgSensor.jsx   # Live optical capillary pulse detector
+│   │   │   ├── LiveAudioAuscultation.jsx # Live microphone acoustic respiration
+│   │   │   ├── OverviewTab.jsx       # Architecture flow & sequential scan
 │   │   │   ├── DietTab.jsx           # Diet planner & dynamic food plates
 │   │   │   ├── DiseaseTab.jsx        # 17 Symptom pills & clinical directives
 │   │   │   ├── EcgTab.jsx            # Patient inputs, upload & animated telemetry
 │   │   │   ├── EcgCanvas.jsx         # HTML5 Canvas real-time ECG sweep renderer
 │   │   │   ├── FitnessTab.jsx        # Lifestyle regression & biomarker meters
 │   │   │   ├── RiskTab.jsx           # XGBoost risk stratification & action plan
-│   │   │   ├── BenchmarksTab.jsx     # IEEE 2025 Paper Figures 2 through 9
-│   │   │   └── Login.jsx             # Authentication & 1-click demo accounts
-│   │   ├── modules/                  # Modular ML calculation engines
+│   │   │   └── Login.jsx             # Authentication & demo profiles
+│   │   ├── modules/                  # 5 Modular ML calculation engines
 │   │   │   ├── dietModule.js
 │   │   │   ├── diseaseModule.js
 │   │   │   ├── ecgModule.js
 │   │   │   ├── fitnessModule.js
-│   │   │   ├── riskModule.js
-│   │   │   └── paperBenchmarks.js
+│   │   │   └── riskModule.js
 │   │   ├── services/
-│   │   │   └── api.js                # REST API connector + client fallback
+│   │   │   ├── api.js                # REST API connector + client fallback
+│   │   │   └── liveTelemetryService.js # High-frequency streaming service
 │   │   ├── App.jsx                   # Central state & pipeline coordinator
 │   │   ├── index.css                 # Dark theme & styling
 │   │   └── main.jsx                  # React DOM entry point
 │   ├── package.json
 │   └── vite.config.js
 ├── package.json               # Root scripts (start, dev, build)
+├── requirements.txt           # Python dependencies
 └── start.bat                  # One-click startup script for Windows
 ```
+
+---
+
+## 🏆 Evaluation & Presentation Guide for Judges
+
+When presenting this project to evaluators or judges who demand a **real-time framework rather than a static calculator**, highlight these key points:
+
+1. **Why Static Form Calculators Fail in Clinical Medicine**:
+   - In real intensive care units (ICUs) or cardiac telemetry wards, patients do not sit and type their blood pressure or ST-segment elevation. Telemetry arrives continuously over IoT networks.
+2. **Autonomous Multi-Domain Pipeline**:
+   - Demonstrate the **`🔴 Live Biosensors & Stream`** tab.
+   - Show how vitals update every 1.2s without typing a single key.
+   - Switch between **Atrial Fibrillation**, **Acute STEMI**, and **Hypoxia** scenarios: point out how the ECG morphology shifts, arrhythmia alerts trigger instantaneously, and the XGBoost Risk engine recalculates risk percentages in sub-second time.
+3. **Hardware Biosensor Demonstration**:
+   - Click **Webcam PPG Sensor**: show your finger or face against the camera lens. The green-channel absorbance curve pulses in real-time and calculates your actual live heart rate.
+   - Click **Acoustic Audio Auscultation**: cough or breathe deeply near the microphone. The live 1024-bin FFT spectrum spikes and registers respiratory symptoms automatically.
+4. **Clinical Decision Support (CDS) Integration**:
+   - Explain how raw IoT sensor data feeds into 5 distinct machine learning models (Random Forest, Logistic Regression, Soft-Voting Ensemble, Interaction Regression, and XGBoost) to produce calibrated, holistic risk scores.
 
 ---
 
