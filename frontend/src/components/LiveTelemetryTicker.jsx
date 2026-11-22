@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart, Activity, Thermometer, Droplets, Zap, ShieldAlert, Radio, AlertOctagon } from 'lucide-react';
+import { Heart, Activity, Thermometer, Droplets, Zap, ShieldAlert, Radio } from 'lucide-react';
 
 export default function LiveTelemetryTicker({ telemetry, riskResult, isLive = true, onOpenLiveTab }) {
     if (!telemetry) return null;
@@ -15,30 +15,12 @@ export default function LiveTelemetryTicker({ telemetry, riskResult, isLive = tr
 
     return (
         <div className="border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md px-4 py-2 text-xs">
-            {/* Critical Emergency Banner if in crisis */}
-            {isCritical && (
-                <div className="mb-2 p-2 bg-red-950/60 border border-red-500/60 rounded-xl text-red-200 flex flex-wrap items-center justify-between gap-2 animate-pulse">
-                    <div className="flex items-center gap-2">
-                        <AlertOctagon className="w-4 h-4 text-red-400 flex-shrink-0 animate-bounce" />
-                        <span className="font-bold text-xs uppercase tracking-wider">
-                            EMERGENCY ALERT: Acute Physiological Anomaly Detected ({telemetry.ecgCondition} • {telemetry.severity})
-                        </span>
-                    </div>
-                    <span className="text-[10px] font-mono bg-red-600/30 px-2 py-0.5 rounded border border-red-400/50">
-                        AUTOMATED ICU TELEMETRY DISPATCH ACTIVE
-                    </span>
-                </div>
-            )}
-
             <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
                 {/* Live Stream Status Pill */}
                 <div className="flex items-center gap-2">
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-mono text-[11px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/30">
                         <Radio className="w-3.5 h-3.5 text-rose-500 animate-pulse" />
                         <span className="font-semibold">LIVE SENSOR STREAM</span>
-                    </span>
-                    <span className="text-[10px] text-slate-500 font-mono hidden sm:inline">
-                        Pkt #{telemetry.packetId} • {telemetry.latencyMs}ms
                     </span>
                 </div>
 

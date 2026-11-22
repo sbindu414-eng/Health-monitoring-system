@@ -62,102 +62,140 @@ ECG_CLASSES = ["NSR", "AF", "STEMI", "LBBB", "RBBB", "AVB"]
 CURRENT_SCENARIO = "normal"
 PACKET_COUNTER = 0
 
+TELEMETRY_SMOOTH_STATE = {
+    "hr": 72.0,
+    "spo2": 98.4,
+    "sys": 120.0,
+    "dia": 78.0,
+    "temp": 36.8,
+    "hrv": 45.0,
+    "resp": 16.0,
+    "last_scenario": "normal"
+}
+
 def generate_telemetry_packet(scenario="normal"):
-    global PACKET_COUNTER
+    global PACKET_COUNTER, TELEMETRY_SMOOTH_STATE
     PACKET_COUNTER += 1
     t = time.time()
-    noise = (random.random() - 0.5) * 2.0
 
+    # Inertial baseline targets with gentle physiological sinus rhythm (no erratic noise)
     if scenario == "athlete":
-        hr = int(52 + math.sin(t * 0.5) * 3 + noise)
-        spo2 = int(min(100, 99 + random.random() * 1))
-        sys_bp = int(115 + math.sin(t * 0.2) * 4)
-        dia_bp = int(72 + math.sin(t * 0.2) * 2)
-        temp = round(36.6 + random.random() * 0.2, 1)
-        hrv = int(65 + random.random() * 10)
-        rr = 1150
-        ecg_cond = "NSR"
-        symptoms = []
-        resp_rate = 12
-        severity = "Normal"
+        target = {
+            "hr": 52.0 + math.sin(t * 0.15) * 1.5,
+            "spo2": 99.0,
+            "sys": 114.0 + math.sin(t * 0.1) * 2.0,
+            "dia": 72.0 + math.sin(t * 0.1) * 1.0,
+            "temp": 36.6,
+            "hrv": 68.0,
+            "rr": 1150,
+            "resp": 12,
+            "ecg_cond": "NSR",
+            "symptoms": [],
+            "severity": "Normal"
+        }
     elif scenario == "exercise":
-        hr = int(135 + math.sin(t * 0.8) * 10 + noise * 2)
-        spo2 = int(97 + random.random() * 2)
-        sys_bp = int(142 + math.sin(t * 0.3) * 6)
-        dia_bp = int(88 + math.sin(t * 0.3) * 3)
-        temp = round(37.4 + random.random() * 0.3, 1)
-        hrv = int(28 + random.random() * 5)
-        rr = 450
-        ecg_cond = "NSR"
-        symptoms = ["palpitations", "fatigue"]
-        resp_rate = 26
-        severity = "Moderate"
+        target = {
+            "hr": 135.0 + math.sin(t * 0.25) * 3.0,
+            "spo2": 97.0,
+            "sys": 142.0 + math.sin(t * 0.15) * 3.0,
+            "dia": 88.0 + math.sin(t * 0.15) * 2.0,
+            "temp": 37.4,
+            "hrv": 28.0,
+            "rr": 450,
+            "resp": 26,
+            "ecg_cond": "NSR",
+            "symptoms": ["palpitations", "fatigue"],
+            "severity": "Moderate"
+        }
     elif scenario == "afib":
-        hr = int(145 + math.sin(t * 2.0) * 18 + noise * 6)
-        spo2 = int(95 + random.random() * 2)
-        sys_bp = int(138 + math.sin(t * 0.4) * 8)
-        dia_bp = int(90 + math.sin(t * 0.4) * 4)
-        temp = round(36.9 + random.random() * 0.2, 1)
-        hrv = int(110 + random.random() * 30)
-        rr = 520
-        ecg_cond = "AF"
-        symptoms = ["palpitations", "dizziness", "irregular_pulse", "fatigue"]
-        resp_rate = 22
-        severity = "High"
+        target = {
+            "hr": 142.0 + math.sin(t * 0.3) * 4.0,
+            "spo2": 95.0,
+            "sys": 138.0 + math.sin(t * 0.2) * 3.0,
+            "dia": 90.0 + math.sin(t * 0.2) * 2.0,
+            "temp": 36.9,
+            "hrv": 105.0,
+            "rr": 520,
+            "resp": 22,
+            "ecg_cond": "AF",
+            "symptoms": ["palpitations", "dizziness", "irregular_pulse", "fatigue"],
+            "severity": "High"
+        }
     elif scenario == "stemi":
-        hr = int(105 + math.sin(t * 0.6) * 8 + noise * 3)
-        spo2 = int(93 + random.random() * 3)
-        sys_bp = int(165 + math.sin(t * 0.3) * 10)
-        dia_bp = int(102 + math.sin(t * 0.3) * 6)
-        temp = round(37.1 + random.random() * 0.2, 1)
-        hrv = int(18 + random.random() * 4)
-        rr = 570
-        ecg_cond = "ST_ELEV"
-        symptoms = ["chest_pain", "jaw_arm_pain", "cold_sweat", "shortness_breath", "nausea"]
-        resp_rate = 24
-        severity = "Critical"
+        target = {
+            "hr": 106.0 + math.sin(t * 0.2) * 2.5,
+            "spo2": 93.0,
+            "sys": 164.0 + math.sin(t * 0.15) * 3.0,
+            "dia": 102.0 + math.sin(t * 0.15) * 2.0,
+            "temp": 37.1,
+            "hrv": 18.0,
+            "rr": 570,
+            "resp": 24,
+            "ecg_cond": "ST_ELEV",
+            "symptoms": ["chest_pain", "jaw_arm_pain", "cold_sweat", "shortness_breath", "nausea"],
+            "severity": "Critical"
+        }
     elif scenario == "hypoxia":
-        hr = int(112 + math.sin(t * 0.7) * 6 + noise * 2)
-        spo2 = int(87 + random.random() * 3)
-        sys_bp = int(132 + math.sin(t * 0.3) * 5)
-        dia_bp = int(84 + math.sin(t * 0.3) * 3)
-        temp = round(38.6 + random.random() * 0.4, 1)
-        hrv = int(32 + random.random() * 6)
-        rr = 620
-        ecg_cond = "NSR"
-        symptoms = ["fever", "cough", "sob", "chills", "fatigue"]
-        resp_rate = 30
-        severity = "High"
+        target = {
+            "hr": 112.0 + math.sin(t * 0.2) * 2.0,
+            "spo2": 87.0,
+            "sys": 132.0 + math.sin(t * 0.15) * 2.5,
+            "dia": 84.0 + math.sin(t * 0.15) * 1.5,
+            "temp": 38.6,
+            "hrv": 32.0,
+            "rr": 620,
+            "resp": 30,
+            "ecg_cond": "NSR",
+            "symptoms": ["fever", "cough", "sob", "chills", "fatigue"],
+            "severity": "High"
+        }
     else:  # normal baseline
-        hr = int(72 + math.sin(t * 0.4) * 4 + noise)
-        spo2 = int(min(100, 98 + random.random() * 2))
-        sys_bp = int(120 + math.sin(t * 0.2) * 3)
-        dia_bp = int(78 + math.sin(t * 0.2) * 2)
-        temp = round(36.8 + random.random() * 0.2, 1)
-        hrv = int(45 + random.random() * 8)
-        rr = 830
-        ecg_cond = "NSR"
-        symptoms = []
-        resp_rate = 16
-        severity = "Normal"
+        target = {
+            "hr": 72.0 + math.sin(t * 0.15) * 1.5,
+            "spo2": 98.2,
+            "sys": 120.0 + math.sin(t * 0.1) * 1.5,
+            "dia": 78.0 + math.sin(t * 0.1) * 1.0,
+            "temp": 36.8,
+            "hrv": 45.0,
+            "rr": 830,
+            "resp": 16,
+            "ecg_cond": "NSR",
+            "symptoms": [],
+            "severity": "Normal"
+        }
+
+    # Inertial filter: smooth exponential transitions to prevent visual jumping
+    alpha = 0.45 if TELEMETRY_SMOOTH_STATE.get("last_scenario") != scenario else 0.12
+    TELEMETRY_SMOOTH_STATE["last_scenario"] = scenario
+
+    TELEMETRY_SMOOTH_STATE["hr"] = round(TELEMETRY_SMOOTH_STATE["hr"] * (1 - alpha) + target["hr"] * alpha, 2)
+    TELEMETRY_SMOOTH_STATE["spo2"] = round(TELEMETRY_SMOOTH_STATE["spo2"] * (1 - alpha) + target["spo2"] * alpha, 2)
+    TELEMETRY_SMOOTH_STATE["sys"] = round(TELEMETRY_SMOOTH_STATE["sys"] * (1 - alpha) + target["sys"] * alpha, 2)
+    TELEMETRY_SMOOTH_STATE["dia"] = round(TELEMETRY_SMOOTH_STATE["dia"] * (1 - alpha) + target["dia"] * alpha, 2)
+    TELEMETRY_SMOOTH_STATE["temp"] = round(TELEMETRY_SMOOTH_STATE["temp"] * (1 - alpha) + target["temp"] * alpha, 2)
+    TELEMETRY_SMOOTH_STATE["hrv"] = round(TELEMETRY_SMOOTH_STATE["hrv"] * (1 - alpha) + target["hrv"] * alpha, 2)
+    TELEMETRY_SMOOTH_STATE["resp"] = round(TELEMETRY_SMOOTH_STATE["resp"] * (1 - alpha) + target["resp"] * alpha, 2)
 
     return {
         "packetId": PACKET_COUNTER,
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "scenario": scenario,
-        "heartRate": hr,
-        "spO2": spo2,
-        "bloodPressure": {"systolic": sys_bp, "diastolic": dia_bp},
-        "skinTemp": temp,
-        "hrv": hrv,
-        "rrInterval": rr,
-        "respirationRate": resp_rate,
-        "ecgCondition": ecg_cond,
-        "activeSymptoms": symptoms,
-        "severity": severity,
+        "heartRate": int(round(TELEMETRY_SMOOTH_STATE["hr"])),
+        "spO2": int(min(100, round(TELEMETRY_SMOOTH_STATE["spo2"]))),
+        "bloodPressure": {
+            "systolic": int(round(TELEMETRY_SMOOTH_STATE["sys"])),
+            "diastolic": int(round(TELEMETRY_SMOOTH_STATE["dia"]))
+        },
+        "skinTemp": round(TELEMETRY_SMOOTH_STATE["temp"], 1),
+        "hrv": int(round(TELEMETRY_SMOOTH_STATE["hrv"])),
+        "rrInterval": target["rr"],
+        "respirationRate": int(round(TELEMETRY_SMOOTH_STATE["resp"])),
+        "ecgCondition": target["ecg_cond"],
+        "activeSymptoms": target["symptoms"],
+        "severity": target["severity"],
         "streamStatus": "ONLINE",
         "throughput": "10 pkts/sec",
-        "latencyMs": round(12 + random.random() * 6, 1)
+        "latencyMs": 14.2
     }
 
 class HealthMLAPIHandler(BaseHTTPRequestHandler):

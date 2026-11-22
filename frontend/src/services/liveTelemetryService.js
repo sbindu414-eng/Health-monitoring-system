@@ -10,8 +10,20 @@ class LiveTelemetryService {
         this.intervalId = null;
         this.isRunning = false;
         this.scenario = "normal";
+        this.lastScenario = "normal";
         this.packetCounter = 0;
         this.streamFrequencyMs = 1000; // 1 packet per second
+
+        // Stateful inertial smoothing to eliminate jumpy fluctuations
+        this.smoothState = {
+            hr: 72.0,
+            spo2: 98.4,
+            sys: 120.0,
+            dia: 78.0,
+            temp: 36.8,
+            hrv: 45.0,
+            resp: 16.0
+        };
     }
 
     start() {
@@ -68,105 +80,131 @@ class LiveTelemetryService {
             // Local fallback synthesizer if backend disconnected
         }
 
-        // High-fidelity client synthetic packet
+        // High-fidelity smoothed client synthetic packet
         this.packetCounter += 1;
         const now = new Date();
         const t = now.getTime() / 1000;
-        const noise = (Math.random() - 0.5) * 2;
-        let p = {
-            packetId: this.packetCounter,
-            timestamp: now.toLocaleTimeString(),
-            scenario: this.scenario,
-            streamStatus: "ONLINE",
-            throughput: "1 pkt/sec",
-            latencyMs: +(11 + Math.random() * 5).toFixed(1)
-        };
 
+        let target = {};
         if (this.scenario === "athlete") {
-            p = {
-                ...p,
-                heartRate: Math.round(52 + Math.sin(t * 0.5) * 3 + noise),
-                spO2: Math.min(100, Math.round(99 + Math.random())),
-                bloodPressure: { systolic: Math.round(114 + Math.sin(t * 0.2) * 3), diastolic: Math.round(72 + Math.sin(t * 0.2) * 2) },
-                skinTemp: +(36.6 + Math.random() * 0.2).toFixed(1),
-                hrv: Math.round(68 + Math.random() * 8),
-                rrInterval: 1150,
-                respirationRate: 12,
-                ecgCondition: "NSR",
-                activeSymptoms: [],
+            target = {
+                hr: 52 + Math.sin(t * 0.15) * 1.5,
+                spo2: 99.0,
+                sys: 114 + Math.sin(t * 0.1) * 2.0,
+                dia: 72 + Math.sin(t * 0.1) * 1.0,
+                temp: 36.6,
+                hrv: 68,
+                rr: 1150,
+                resp: 12,
+                ecg_cond: "NSR",
+                symptoms: [],
                 severity: "Normal"
             };
         } else if (this.scenario === "exercise") {
-            p = {
-                ...p,
-                heartRate: Math.round(135 + Math.sin(t * 0.8) * 8 + noise * 2),
-                spO2: Math.round(97 + Math.random() * 2),
-                bloodPressure: { systolic: Math.round(142 + Math.sin(t * 0.3) * 6), diastolic: Math.round(88 + Math.sin(t * 0.3) * 3) },
-                skinTemp: +(37.4 + Math.random() * 0.3).toFixed(1),
-                hrv: Math.round(28 + Math.random() * 5),
-                rrInterval: 450,
-                respirationRate: 26,
-                ecgCondition: "NSR",
-                activeSymptoms: ["palpitations", "fatigue"],
+            target = {
+                hr: 135 + Math.sin(t * 0.25) * 3.0,
+                spo2: 97.0,
+                sys: 142 + Math.sin(t * 0.15) * 3.0,
+                dia: 88 + Math.sin(t * 0.15) * 2.0,
+                temp: 37.4,
+                hrv: 28,
+                rr: 450,
+                resp: 26,
+                ecg_cond: "NSR",
+                symptoms: ["palpitations", "fatigue"],
                 severity: "Moderate"
             };
         } else if (this.scenario === "afib") {
-            p = {
-                ...p,
-                heartRate: Math.round(145 + Math.sin(t * 2.0) * 16 + noise * 5),
-                spO2: Math.round(95 + Math.random() * 2),
-                bloodPressure: { systolic: Math.round(138 + Math.sin(t * 0.4) * 8), diastolic: Math.round(90 + Math.sin(t * 0.4) * 4) },
-                skinTemp: +(36.9 + Math.random() * 0.2).toFixed(1),
-                hrv: Math.round(110 + Math.random() * 30),
-                rrInterval: 520,
-                respirationRate: 22,
-                ecgCondition: "AF",
-                activeSymptoms: ["palpitations", "dizziness", "irregular_pulse", "fatigue"],
+            target = {
+                hr: 142 + Math.sin(t * 0.3) * 4.0,
+                spo2: 95.0,
+                sys: 138 + Math.sin(t * 0.2) * 3.0,
+                dia: 90 + Math.sin(t * 0.2) * 2.0,
+                temp: 36.9,
+                hrv: 105,
+                rr: 520,
+                resp: 22,
+                ecg_cond: "AF",
+                symptoms: ["palpitations", "dizziness", "irregular_pulse", "fatigue"],
                 severity: "High"
             };
         } else if (this.scenario === "stemi") {
-            p = {
-                ...p,
-                heartRate: Math.round(105 + Math.sin(t * 0.6) * 8 + noise * 3),
-                spO2: Math.round(93 + Math.random() * 3),
-                bloodPressure: { systolic: Math.round(165 + Math.sin(t * 0.3) * 10), diastolic: Math.round(102 + Math.sin(t * 0.3) * 6) },
-                skinTemp: +(37.1 + Math.random() * 0.2).toFixed(1),
-                hrv: Math.round(18 + Math.random() * 4),
-                rrInterval: 570,
-                respirationRate: 24,
-                ecgCondition: "ST_ELEV",
-                activeSymptoms: ["chest_pain", "jaw_arm_pain", "cold_sweat", "shortness_breath", "nausea"],
+            target = {
+                hr: 106 + Math.sin(t * 0.2) * 2.5,
+                spo2: 93.0,
+                sys: 164 + Math.sin(t * 0.15) * 3.0,
+                dia: 102 + Math.sin(t * 0.15) * 2.0,
+                temp: 37.1,
+                hrv: 18,
+                rr: 570,
+                resp: 24,
+                ecg_cond: "ST_ELEV",
+                symptoms: ["chest_pain", "jaw_arm_pain", "cold_sweat", "shortness_breath", "nausea"],
                 severity: "Critical"
             };
         } else if (this.scenario === "hypoxia") {
-            p = {
-                ...p,
-                heartRate: Math.round(112 + Math.sin(t * 0.7) * 6 + noise * 2),
-                spO2: Math.round(87 + Math.random() * 3),
-                bloodPressure: { systolic: Math.round(132 + Math.sin(t * 0.3) * 5), diastolic: Math.round(84 + Math.sin(t * 0.3) * 3) },
-                skinTemp: +(38.6 + Math.random() * 0.4).toFixed(1),
-                hrv: Math.round(32 + Math.random() * 6),
-                rrInterval: 620,
-                respirationRate: 30,
-                ecgCondition: "NSR",
-                activeSymptoms: ["fever", "cough", "sob", "chills", "fatigue"],
+            target = {
+                hr: 112 + Math.sin(t * 0.2) * 2.0,
+                spo2: 87.0,
+                sys: 132 + Math.sin(t * 0.15) * 2.5,
+                dia: 84 + Math.sin(t * 0.15) * 1.5,
+                temp: 38.6,
+                hrv: 32,
+                rr: 620,
+                resp: 30,
+                ecg_cond: "NSR",
+                symptoms: ["fever", "cough", "sob", "chills", "fatigue"],
                 severity: "High"
             };
         } else {
-            p = {
-                ...p,
-                heartRate: Math.round(72 + Math.sin(t * 0.4) * 4 + noise),
-                spO2: Math.min(100, Math.round(98 + Math.random() * 2)),
-                bloodPressure: { systolic: Math.round(120 + Math.sin(t * 0.2) * 3), diastolic: Math.round(78 + Math.sin(t * 0.2) * 2) },
-                skinTemp: +(36.8 + Math.random() * 0.2).toFixed(1),
-                hrv: Math.round(45 + Math.random() * 8),
-                rrInterval: 830,
-                respirationRate: 16,
-                ecgCondition: "NSR",
-                activeSymptoms: [],
+            target = {
+                hr: 72 + Math.sin(t * 0.15) * 1.5,
+                spo2: 98.2,
+                sys: 120 + Math.sin(t * 0.1) * 1.5,
+                dia: 78 + Math.sin(t * 0.1) * 1.0,
+                temp: 36.8,
+                hrv: 45,
+                rr: 830,
+                resp: 16,
+                ecg_cond: "NSR",
+                symptoms: [],
                 severity: "Normal"
             };
         }
+
+        // Smooth state transition
+        const alpha = this.lastScenario !== this.scenario ? 0.45 : 0.12;
+        this.lastScenario = this.scenario;
+
+        this.smoothState.hr = this.smoothState.hr * (1 - alpha) + target.hr * alpha;
+        this.smoothState.spo2 = this.smoothState.spo2 * (1 - alpha) + target.spo2 * alpha;
+        this.smoothState.sys = this.smoothState.sys * (1 - alpha) + target.sys * alpha;
+        this.smoothState.dia = this.smoothState.dia * (1 - alpha) + target.dia * alpha;
+        this.smoothState.temp = this.smoothState.temp * (1 - alpha) + target.temp * alpha;
+        this.smoothState.hrv = this.smoothState.hrv * (1 - alpha) + target.hrv * alpha;
+        this.smoothState.resp = this.smoothState.resp * (1 - alpha) + target.resp * alpha;
+
+        const p = {
+            packetId: this.packetCounter,
+            timestamp: now.toLocaleTimeString(),
+            scenario: this.scenario,
+            heartRate: Math.round(this.smoothState.hr),
+            spO2: Math.min(100, Math.round(this.smoothState.spo2)),
+            bloodPressure: {
+                systolic: Math.round(this.smoothState.sys),
+                diastolic: Math.round(this.smoothState.dia)
+            },
+            skinTemp: +(this.smoothState.temp).toFixed(1),
+            hrv: Math.round(this.smoothState.hrv),
+            rrInterval: target.rr,
+            respirationRate: Math.round(this.smoothState.resp),
+            ecgCondition: target.ecg_cond,
+            activeSymptoms: target.symptoms,
+            severity: target.severity,
+            streamStatus: "ONLINE",
+            throughput: "1 pkt/sec",
+            latencyMs: 12.4
+        };
 
         this.emit(p);
     }

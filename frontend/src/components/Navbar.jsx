@@ -24,9 +24,6 @@ export default function Navbar({
                             <h1 className="text-base font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 via-purple-300 to-cyan-400">
                                 Modular ML Health Monitoring Framework
                             </h1>
-                            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-rose-500/10 text-rose-300 border border-rose-500/30 animate-pulse">
-                                <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping" /> REAL-TIME IoT ENGINE
-                            </span>
                         </div>
                     </div>
                 </div>
@@ -62,13 +59,6 @@ export default function Navbar({
                             title="Load Exercise Tachycardia Stream"
                         >
                             ⚡ Exertion
-                        </button>
-                        <button
-                            onClick={() => onLoadPreset('stemi')}
-                            className="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-900 hover:bg-slate-800 text-rose-300 border border-rose-500/30 transition-all"
-                            title="Load STEMI Ischemia Crisis Stream"
-                        >
-                            🚨 STEMI Alert
                         </button>
                     </div>
 
