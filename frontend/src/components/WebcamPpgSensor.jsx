@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, CameraOff, Heart, Activity, AlertCircle, CheckCircle2, Eye, EyeOff, Sparkles } from 'lucide-react';
+import { Camera, CameraOff, Heart, Activity, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }) {
     const [isActive, setIsActive] = useState(false);
@@ -7,11 +7,9 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
     const [liveBpm, setLiveBpm] = useState(null);
     const [signalConfidence, setSignalConfidence] = useState(0);
     const [errorMsg, setErrorMsg] = useState('');
-    const [showWaveform, setShowWaveform] = useState(true);
 
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
-    const waveCanvasRef = useRef(null);
     const streamRef = useRef(null);
     const animIdRef = useRef(null);
 
@@ -74,7 +72,6 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
     const processFrames = () => {
         const video = videoRef.current;
         const canvas = canvasRef.current;
-        const waveCanvas = waveCanvasRef.current;
 
         if (!video || !canvas || video.readyState !== 4) {
             animIdRef.current = requestAnimationFrame(processFrames);
@@ -82,7 +79,6 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
         }
 
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        const waveCtx = waveCanvas?.getContext('2d');
         const width = 160;
         const height = 120;
         canvas.width = width;
@@ -96,7 +92,7 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
         const startY = Math.floor((height - roiSize) / 2);
         const frameData = ctx.getImageData(startX, startY, roiSize, roiSize).data;
 
-        // Calculate average Green channel intensity (optimal hemoglobin absorbance)
+        // Calculate average Green channel intensity
         let greenSum = 0;
         const pixelCount = roiSize * roiSize;
         for (let i = 0; i < frameData.length; i += 4) {
@@ -106,7 +102,7 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
         const now = performance.now();
 
         // 1. Digital Low-Pass Filter (IIR single-pole, alpha = 0.25)
-        // Eliminates high-frequency camera sensor thermal noise while passing 0.8 - 3.0 Hz pulse wave
+        // Cuts high-frequency sensor noise while preserving hemodynamic pulsation
         if (filteredGreenRef.current === null) {
             filteredGreenRef.current = rawGreen;
         } else {
@@ -117,13 +113,13 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
         ppgBufferRef.current.push(smoothedSample);
         timestampsRef.current.push(now);
 
-        // Maintain sliding buffer of 180 samples (~5-6 seconds)
+        // Maintain sliding buffer of 180 samples (~5-6 seconds at 30fps)
         if (ppgBufferRef.current.length > 180) {
             ppgBufferRef.current.shift();
             timestampsRef.current.shift();
         }
 
-        // 2. Adaptive Peak Detection with Refractory Window
+        // 2. Adaptive Peak Detection with Refractory Window for ML Ingestion
         const buffer = ppgBufferRef.current;
         const times = timestampsRef.current;
 
@@ -132,11 +128,10 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
             const mean = buffer.reduce((a, b) => a + b, 0) / buffer.length;
             const centered = buffer.map((v) => v - mean);
 
-            // Compute signal standard deviation for dynamic adaptive threshold
+            // Compute signal variance / standard deviation
             const variance = centered.reduce((sum, v) => sum + v * v, 0) / centered.length;
             const stdDev = Math.sqrt(variance);
 
-            // If stdDev is too small, no biological signal present (e.g. camera pointed at wall/dark)
             if (stdDev >= 0.15) {
                 const dynamicThreshold = Math.max(0.3, stdDev * 0.45);
 
@@ -160,7 +155,6 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
                     const intervals = [];
                     for (let j = 1; j < peaks.length; j++) {
                         const diffMs = peaks[j] - peaks[j - 1];
-                        // Valid RR physiological interval: 375ms (160 BPM) to 1350ms (44 BPM)
                         if (diffMs >= 375 && diffMs <= 1350) {
                             intervals.push(diffMs);
                         }
@@ -178,11 +172,9 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
                             if (smoothedBpmRef.current === null) {
                                 smoothedBpmRef.current = instantBpm;
                             } else {
-                                // Clamp maximum single-step change to +/- 6 BPM to eliminate sudden spikes
                                 const delta = instantBpm - smoothedBpmRef.current;
                                 const clampedDelta = Math.max(-6, Math.min(6, delta));
                                 const targetBpm = smoothedBpmRef.current + clampedDelta;
-                                // Smooth EMA transition
                                 smoothedBpmRef.current = smoothedBpmRef.current * 0.85 + targetBpm * 0.15;
                             }
 
@@ -196,7 +188,7 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
                                 setSignalConfidence(conf);
                             }
 
-                            // Emit to central patient state if auto-sync is on (throttled to 1.5 seconds)
+                            // Emit to central patient state for sliding-window ML inference (throttled to 1.5s)
                             if (isLiveAutoSync && now - lastBpmEmitRef.current > 1500) {
                                 lastBpmEmitRef.current = now;
                                 onBpmDetected(stableBpm);
@@ -204,52 +196,6 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
                         }
                     }
                 }
-            }
-        }
-
-        // 4. Render Clean, Anti-Aliased Live PPG Plethysmogram Waveform
-        if (showWaveform && waveCtx && waveCanvas) {
-            waveCtx.fillStyle = '#090d16';
-            waveCtx.fillRect(0, 0, waveCanvas.width, waveCanvas.height);
-
-            // Subtle oscilloscope background grid
-            waveCtx.strokeStyle = 'rgba(16, 185, 129, 0.12)';
-            waveCtx.lineWidth = 0.5;
-            for (let x = 0; x < waveCanvas.width; x += 25) {
-                waveCtx.beginPath();
-                waveCtx.moveTo(x, 0);
-                waveCtx.lineTo(x, waveCanvas.height);
-                waveCtx.stroke();
-            }
-            for (let y = 0; y < waveCanvas.height; y += 20) {
-                waveCtx.beginPath();
-                waveCtx.moveTo(0, y);
-                waveCtx.lineTo(waveCanvas.width, y);
-                waveCtx.stroke();
-            }
-
-            const buf = ppgBufferRef.current;
-            if (buf.length > 3) {
-                const min = Math.min(...buf);
-                const max = Math.max(...buf);
-                const range = max - min || 1;
-
-                // Draw smoothed glowing PPG trace
-                waveCtx.strokeStyle = '#10b981';
-                waveCtx.lineWidth = 2.2;
-                waveCtx.lineJoin = 'round';
-                waveCtx.lineCap = 'round';
-                waveCtx.beginPath();
-
-                for (let k = 0; k < buf.length; k++) {
-                    const x = (k / 180) * waveCanvas.width;
-                    // Invert so arterial systolic expansion rises upward
-                    const normalized = (buf[k] - min) / range;
-                    const y = waveCanvas.height - normalized * (waveCanvas.height - 18) - 9;
-                    if (k === 0) waveCtx.moveTo(x, y);
-                    else waveCtx.lineTo(x, y);
-                }
-                waveCtx.stroke();
             }
         }
 
@@ -271,52 +217,30 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
                             </span>
                         </h4>
                         <p className="text-[11px] text-slate-400">
-                            Measures hemoglobin blood volume pulse using webcam optical absorption — zero typing required!
+                            Extracts real-time resting heart rate via optical absorption directly into the ML inference pipeline.
                         </p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                    {/* Optional/Recommended Waveform Display Toggle */}
-                    <button
-                        type="button"
-                        onClick={() => setShowWaveform((prev) => !prev)}
-                        className="px-2.5 py-1.5 rounded-lg text-xs font-medium border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 flex items-center gap-1.5 transition-all"
-                        title={showWaveform ? "Waveform is currently visible (Recommended for demo)" : "Waveform is hidden"}
-                    >
-                        {showWaveform ? (
-                            <>
-                                <Eye className="w-3.5 h-3.5 text-emerald-400" />
-                                <span>Graph: Visible (Recommended)</span>
-                            </>
-                        ) : (
-                            <>
-                                <EyeOff className="w-3.5 h-3.5 text-slate-400" />
-                                <span>Graph: Hidden (Optional)</span>
-                            </>
-                        )}
-                    </button>
-
-                    <button
-                        type="button"
-                        onClick={isActive ? stopCamera : startCamera}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md ${
-                            isActive
-                                ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30'
-                                : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30'
-                        }`}
-                    >
-                        {isActive ? (
-                            <>
-                                <CameraOff className="w-3.5 h-3.5" /> Stop Sensor
-                            </>
-                        ) : (
-                            <>
-                                <Camera className="w-3.5 h-3.5" /> Activate Live Sensor
-                            </>
-                        )}
-                    </button>
-                </div>
+                <button
+                    type="button"
+                    onClick={isActive ? stopCamera : startCamera}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md ${
+                        isActive
+                            ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30'
+                            : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30'
+                    }`}
+                >
+                    {isActive ? (
+                        <>
+                            <CameraOff className="w-3.5 h-3.5" /> Stop Sensor
+                        </>
+                    ) : (
+                        <>
+                            <Camera className="w-3.5 h-3.5" /> Activate Live Sensor
+                        </>
+                    )}
+                </button>
             </div>
 
             {errorMsg && (
@@ -326,10 +250,10 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
                 </div>
             )}
 
-            {/* Video Preview & Live Waveform Canvas */}
-            <div className={`grid gap-3 items-center ${showWaveform ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
+            {/* Clean Balanced Layout: Webcam ROI Preview & Live Vitals */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
                 {/* Webcam Preview */}
-                <div className="relative rounded-xl overflow-hidden bg-slate-950 border border-slate-800 aspect-video flex items-center justify-center max-h-52 mx-auto w-full">
+                <div className="relative rounded-xl overflow-hidden bg-slate-950 border border-slate-800 aspect-video flex items-center justify-center max-h-48 w-full md:col-span-1">
                     <video
                         ref={videoRef}
                         playsInline
@@ -340,7 +264,7 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
                         <div className="text-center p-4 space-y-1.5 text-slate-500">
                             <Camera className="w-8 h-8 mx-auto opacity-40 text-emerald-400" />
                             <p className="text-xs">Webcam Optical Sensor Inactive</p>
-                            <p className="text-[10px]">Click 'Activate Live Sensor' to measure real pulse</p>
+                            <p className="text-[10px]">Click 'Activate Live Sensor' to begin</p>
                         </div>
                     )}
                     {isActive && (
@@ -353,66 +277,50 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
                     <canvas ref={canvasRef} className="hidden" />
                 </div>
 
-                {/* Pulse Wave Oscilloscope (Optional to view) */}
-                {showWaveform && (
-                    <div className="space-y-2">
-                        <div className="flex justify-between items-center text-xs">
-                            <span className="text-slate-400 font-mono flex items-center gap-1.5">
-                                <span>Optical Hemoglobin Pulse Wave</span>
-                                <span className="text-[9px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700">
-                                    Smoothed SQI
-                                </span>
-                            </span>
-                            {isActive && (
-                                <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                    Conf: {signalConfidence}%
-                                </span>
-                            )}
+                {/* Real-Time Measured Vitals Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 md:col-span-2 text-xs">
+                    {/* Live Heart Rate Card */}
+                    <div className="p-3.5 bg-slate-950/80 rounded-xl border border-emerald-500/30 flex flex-col justify-between">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Live Heart Rate</span>
+                            <Heart className={`w-4 h-4 text-rose-500 ${liveBpm ? 'animate-bounce' : 'opacity-40'}`} />
                         </div>
-                        <div className="rounded-xl overflow-hidden border border-emerald-500/30 bg-[#090d16]">
-                            <canvas ref={waveCanvasRef} width={300} height={110} className="w-full block" />
-                        </div>
-                    </div>
-                )}
-            </div>
-
-            {/* Real-Time Measured Vitals Bar */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1 text-xs">
-                <div className="p-3 bg-slate-950/80 rounded-xl border border-emerald-500/30 flex items-center justify-between">
-                    <div>
-                        <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Live Heart Rate</span>
-                        <div className="text-2xl font-bold font-mono text-emerald-400 mt-0.5 flex items-baseline gap-1">
+                        <div className="text-2xl font-bold font-mono text-emerald-400 mt-2 flex items-baseline gap-1">
                             {liveBpm ? liveBpm : '--'} <span className="text-xs font-normal text-slate-400">BPM</span>
                         </div>
+                        <span className="text-[10px] text-slate-500 mt-1">Optical green-channel sample</span>
                     </div>
-                    <Heart className={`w-5 h-5 text-rose-500 ${liveBpm ? 'animate-bounce' : 'opacity-40'}`} />
-                </div>
 
-                <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 flex items-center justify-between">
-                    <div>
-                        <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Pulse Regularity</span>
-                        <div className="text-sm font-bold font-mono text-slate-200 mt-1">
+                    {/* Pulse Regularity Card */}
+                    <div className="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-col justify-between">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Pulse Regularity</span>
+                            <Activity className="w-4 h-4 text-indigo-400 opacity-60" />
+                        </div>
+                        <div className="text-sm font-bold font-mono text-slate-200 mt-2">
                             {liveBpm ? (liveBpm > 100 ? 'Tachycardia' : liveBpm < 60 ? 'Bradycardia' : 'Normal Sinus') : 'Awaiting pulse'}
                         </div>
+                        <span className="text-[10px] text-slate-500 mt-1">
+                            {isActive ? `Signal Conf: ${signalConfidence}%` : 'Sensor Standby'}
+                        </span>
                     </div>
-                    <Activity className="w-5 h-5 text-indigo-400 opacity-60" />
-                </div>
 
-                <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 col-span-2 sm:col-span-1 flex items-center justify-between">
-                    <div>
-                        <span className="text-[10px] text-slate-400 uppercase tracking-wider block">ML Auto-Sync</span>
-                        <div className="text-xs font-semibold text-emerald-300 mt-1 flex items-center gap-1">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                            <span>Continuous Stream</span>
+                    {/* ML Auto-Sync Status Card */}
+                    <div className="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-col justify-between">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">ML Pipeline</span>
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                         </div>
+                        <div className="text-xs font-semibold text-emerald-300 mt-2 flex items-center gap-1">
+                            <span>Continuous Ingest</span>
+                        </div>
+                        <span className="text-[10px] text-slate-500 mt-1">Automated sliding-window</span>
                     </div>
-                    <span className="text-[10px] font-mono text-slate-500">Smoothed Ingest</span>
                 </div>
             </div>
 
             <p className="text-[11px] text-slate-400 leading-relaxed italic">
-                * Note: Evaluators can test this live by placing their index fingertip lightly over the webcam lens or facing the camera in good lighting. Digital low-pass filtering and EMA smoothing ensure stable, drift-free vitals.
+                * Note: Evaluators can test this live by placing their index fingertip lightly over the webcam lens or facing the camera in good lighting. Digital low-pass filtering and EMA smoothing ensure stable, drift-free input into the ML models.
             </p>
         </div>
     );
