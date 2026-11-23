@@ -378,10 +378,18 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
             age = float(body.get('age', 40))
             hr = float(body.get('restingHeartRate', 72))
 
+            alias_map = {
+                'sob': 'shortness_of_breath',
+                'cold_sweat': 'cold_sweats',
+                'irregular_pulse': 'palpitations',
+                'jaw_arm_pain': 'chest_pain'
+            }
+
             vec = np.zeros(20)
             for s in symptoms:
-                if s in SYMPTOM_NAMES:
-                    vec[SYMPTOM_NAMES.index(s)] = 1
+                mapped = alias_map.get(s, s)
+                if mapped in SYMPTOM_NAMES:
+                    vec[SYMPTOM_NAMES.index(mapped)] = 1
             vec[17] = duration
             vec[18] = age
             vec[19] = hr

@@ -73,7 +73,11 @@ export default function LiveTelemetryTab({
 
             {/* Audio Mode */}
             {streamSource === 'audio' && (
-                <LiveAudioAuscultation onSymptomDetected={onApplyAudioSymptom} />
+                <LiveAudioAuscultation
+                    onSymptomDetected={onApplyAudioSymptom}
+                    respirationRate={telemetry?.respirationRate ?? 16}
+                    telemetry={telemetry}
+                />
             )}
 
             {/* Real-Time Live Vitals Dashboard Grid */}

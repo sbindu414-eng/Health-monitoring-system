@@ -85,10 +85,18 @@ export default function App() {
 
             // Automatically feed live telemetry into patient state without user input!
             setPatientData((prev) => {
+                // Preserve live-detected acoustic/sensor symptoms (cough, sob)
+                const preservedSensory = (prev.symptoms || []).filter(
+                    (s) => s === 'cough' || s === 'sob'
+                );
+                const mergedSymptoms = Array.from(
+                    new Set([...preservedSensory, ...(packet.activeSymptoms || [])])
+                );
+
                 const updated = {
                     ...prev,
                     heartRateResting: packet.heartRate,
-                    symptoms: packet.activeSymptoms || [],
+                    symptoms: mergedSymptoms,
                     ecgSymptoms: packet.activeSymptoms || []
                 };
 
