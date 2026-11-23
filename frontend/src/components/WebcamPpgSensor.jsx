@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, CameraOff, Heart, Activity, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Camera, CameraOff, AlertCircle } from 'lucide-react';
 
 export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }) {
     const [isActive, setIsActive] = useState(false);
@@ -250,10 +250,9 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
                 </div>
             )}
 
-            {/* Clean Balanced Layout: Webcam ROI Preview & Live Vitals */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
-                {/* Webcam Preview */}
-                <div className="relative rounded-xl overflow-hidden bg-slate-950 border border-slate-800 aspect-video flex items-center justify-center max-h-48 w-full md:col-span-1">
+            {/* Webcam ROI Preview */}
+            <div className="flex justify-center">
+                <div className="relative rounded-xl overflow-hidden bg-slate-950 border border-slate-800 aspect-video flex items-center justify-center max-h-52 w-full max-w-md">
                     <video
                         ref={videoRef}
                         playsInline
@@ -261,9 +260,9 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
                         className={`w-full h-full object-cover ${isActive ? 'block' : 'hidden'}`}
                     />
                     {!isActive && (
-                        <div className="text-center p-4 space-y-1.5 text-slate-500">
+                        <div className="text-center p-5 space-y-1.5 text-slate-500">
                             <Camera className="w-8 h-8 mx-auto opacity-40 text-emerald-400" />
-                            <p className="text-xs">Webcam Optical Sensor Inactive</p>
+                            <p className="text-xs font-medium">Webcam Optical Sensor Inactive</p>
                             <p className="text-[10px]">Click 'Activate Live Sensor' to begin</p>
                         </div>
                     )}
@@ -275,47 +274,6 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
                         </div>
                     )}
                     <canvas ref={canvasRef} className="hidden" />
-                </div>
-
-                {/* Real-Time Measured Vitals Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 md:col-span-2 text-xs">
-                    {/* Live Heart Rate Card */}
-                    <div className="p-3.5 bg-slate-950/80 rounded-xl border border-emerald-500/30 flex flex-col justify-between">
-                        <div className="flex items-center justify-between">
-                            <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Live Heart Rate</span>
-                            <Heart className={`w-4 h-4 text-rose-500 ${liveBpm ? 'animate-bounce' : 'opacity-40'}`} />
-                        </div>
-                        <div className="text-2xl font-bold font-mono text-emerald-400 mt-2 flex items-baseline gap-1">
-                            {liveBpm ? liveBpm : '--'} <span className="text-xs font-normal text-slate-400">BPM</span>
-                        </div>
-                        <span className="text-[10px] text-slate-500 mt-1">Optical green-channel sample</span>
-                    </div>
-
-                    {/* Pulse Regularity Card */}
-                    <div className="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-col justify-between">
-                        <div className="flex items-center justify-between">
-                            <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Pulse Regularity</span>
-                            <Activity className="w-4 h-4 text-indigo-400 opacity-60" />
-                        </div>
-                        <div className="text-sm font-bold font-mono text-slate-200 mt-2">
-                            {liveBpm ? (liveBpm > 100 ? 'Tachycardia' : liveBpm < 60 ? 'Bradycardia' : 'Normal Sinus') : 'Awaiting pulse'}
-                        </div>
-                        <span className="text-[10px] text-slate-500 mt-1">
-                            {isActive ? `Signal Conf: ${signalConfidence}%` : 'Sensor Standby'}
-                        </span>
-                    </div>
-
-                    {/* ML Auto-Sync Status Card */}
-                    <div className="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-col justify-between">
-                        <div className="flex items-center justify-between">
-                            <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">ML Pipeline</span>
-                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        </div>
-                        <div className="text-xs font-semibold text-emerald-300 mt-2 flex items-center gap-1">
-                            <span>Continuous Ingest</span>
-                        </div>
-                        <span className="text-[10px] text-slate-500 mt-1">Automated sliding-window</span>
-                    </div>
                 </div>
             </div>
 
