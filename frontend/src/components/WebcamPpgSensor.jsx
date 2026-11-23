@@ -1,7 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Camera, CameraOff, AlertCircle } from 'lucide-react';
 
-export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }) {
+export default function WebcamPpgSensor({
+    onBpmDetected,
+    isLiveAutoSync = true,
+    onLiveReading
+}) {
     const [isActive, setIsActive] = useState(false);
     const [statusText, setStatusText] = useState('Camera inactive');
     const [liveBpm, setLiveBpm] = useState(null);
@@ -35,6 +39,9 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
                 await videoRef.current.play();
             }
             setIsActive(true);
+            if (onLiveReading) {
+                onLiveReading({ bpm: null, isActive: true, confidence: 0 });
+            }
             setStatusText('Sensors active. Hold fingertip over lens or center face in frame.');
             processFrames();
         } catch (err) {
@@ -61,6 +68,9 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
         smoothedBpmRef.current = null;
         ppgBufferRef.current = [];
         timestampsRef.current = [];
+        if (onLiveReading) {
+            onLiveReading({ bpm: null, isActive: false, confidence: 0 });
+        }
     };
 
     useEffect(() => {
@@ -181,11 +191,14 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
                             const stableBpm = Math.round(smoothedBpmRef.current);
                             const conf = Math.min(98, Math.max(68, Math.round(62 + intervals.length * 6)));
 
-                            // Throttle UI state updates to every 400ms to eliminate visual jitter
-                            if (now - lastUiUpdateRef.current > 400) {
+                            // Throttle UI state updates to every 300ms to eliminate visual jitter
+                            if (now - lastUiUpdateRef.current > 300) {
                                 lastUiUpdateRef.current = now;
                                 setLiveBpm(stableBpm);
                                 setSignalConfidence(conf);
+                                if (onLiveReading) {
+                                    onLiveReading({ bpm: stableBpm, isActive: true, confidence: conf });
+                                }
                             }
 
                             // Emit to central patient state for sliding-window ML inference (throttled to 1.5s)
@@ -267,11 +280,17 @@ export default function WebcamPpgSensor({ onBpmDetected, isLiveAutoSync = true }
                         </div>
                     )}
                     {isActive && (
-                        <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                            <div className="w-20 h-20 rounded-xl border-2 border-emerald-400/60 border-dashed animate-pulse flex items-center justify-center">
-                                <span className="text-[10px] text-emerald-300 font-mono bg-slate-950/80 px-1 rounded">ROI</span>
+                        <>
+                            <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                                <div className="w-20 h-20 rounded-xl border-2 border-emerald-400/60 border-dashed animate-pulse flex items-center justify-center">
+                                    <span className="text-[10px] text-emerald-300 font-mono bg-slate-950/80 px-1 rounded">ROI</span>
+                                </div>
                             </div>
-                        </div>
+                            <div className="absolute top-2.5 left-2.5 bg-slate-950/80 border border-emerald-500/40 text-[10px] font-mono text-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1.5 shadow backdrop-blur-sm pointer-events-none">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                <span>{liveBpm ? `Live Optical: ${liveBpm} BPM` : 'Align fingertip / face'}</span>
+                            </div>
+                        </>
                     )}
                     <canvas ref={canvasRef} className="hidden" />
                 </div>

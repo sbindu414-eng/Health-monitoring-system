@@ -76,12 +76,27 @@ export default function App() {
     const [isScanning, setIsScanning] = useState(false);
     const lastInferenceTimeRef = useRef(0);
 
+    // Live Camera Optical Sensor State Reference
+    const [cameraVitals, setCameraVitals] = useState({ isActive: false, bpm: null, confidence: 0 });
+    const cameraVitalsRef = useRef({ isActive: false, bpm: null, confidence: 0 });
+
     // Subscribe to Real-Time Telemetry Stream on mount
     useEffect(() => {
         liveTelemetry.start();
 
         const unsubscribe = liveTelemetry.subscribe((packet) => {
-            setTelemetry(packet);
+            // If camera optical sensor is actively measuring, prioritize live camera BPM!
+            const isCamActive = cameraVitalsRef.current.isActive && cameraVitalsRef.current.bpm;
+            const activeHr = isCamActive ? cameraVitalsRef.current.bpm : packet.heartRate;
+            const activeRr = Math.round(60000 / activeHr);
+
+            const enrichedPacket = {
+                ...packet,
+                heartRate: activeHr,
+                rrInterval: activeRr
+            };
+
+            setTelemetry(enrichedPacket);
 
             // Automatically feed live telemetry into patient state without user input!
             setPatientData((prev) => {
@@ -95,7 +110,7 @@ export default function App() {
 
                 const updated = {
                     ...prev,
-                    heartRateResting: packet.heartRate,
+                    heartRateResting: activeHr,
                     symptoms: mergedSymptoms,
                     ecgSymptoms: packet.activeSymptoms || []
                 };
@@ -104,7 +119,7 @@ export default function App() {
                 const now = performance.now();
                 if (now - lastInferenceTimeRef.current > 1200) {
                     lastInferenceTimeRef.current = now;
-                    executeSlidingWindowInference(updated, packet);
+                    executeSlidingWindowInference(updated, enrichedPacket);
                 }
 
                 return updated;
@@ -217,12 +232,19 @@ export default function App() {
 
     // Live Webcam Optical PPG Detection
     const handleApplyLiveBpm = (bpm) => {
+        cameraVitalsRef.current = { ...cameraVitalsRef.current, bpm, isActive: true };
+        setCameraVitals((prev) => ({ ...prev, bpm, isActive: true }));
         setPatientData((prev) => ({ ...prev, heartRateResting: bpm }));
+        const currentRr = Math.round(60000 / bpm);
+        setTelemetry((prev) => prev ? ({ ...prev, heartRate: bpm, rrInterval: currentRr }) : prev);
         setAuditLog((prev) => [
             { time: new Date().toLocaleTimeString(), level: 'INFO', message: `Webcam Optical PPG captured live heart rate: ${bpm} BPM.` },
             ...prev
         ]);
-        executeSlidingWindowInference({ ...patientData, heartRateResting: bpm }, telemetry);
+        executeSlidingWindowInference(
+            { ...patientData, heartRateResting: bpm },
+            telemetry ? { ...telemetry, heartRate: bpm, rrInterval: currentRr } : null
+        );
     };
 
     // Live Audio Cough / Stridor Detection
@@ -348,6 +370,14 @@ export default function App() {
                         onApplyAudioSymptom={handleApplyAudioSymptom}
                         auditLog={auditLog}
                         riskResult={results.risk}
+                        cameraVitals={cameraVitals}
+                        onCameraReadingChange={(reading) => {
+                            cameraVitalsRef.current = reading;
+                            setCameraVitals(reading);
+                            if (reading.bpm) {
+                                handleApplyLiveBpm(reading.bpm);
+                            }
+                        }}
                     />
                 )}
 

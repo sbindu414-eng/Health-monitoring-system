@@ -13,9 +13,19 @@ export default function LiveTelemetryTab({
     onApplyLiveBpm,
     onApplyAudioSymptom,
     auditLog = [],
-    riskResult
+    riskResult,
+    cameraVitals,
+    onCameraReadingChange
 }) {
     const [streamSource, setStreamSource] = useState('webcam'); // 'webcam' | 'audio'
+
+    // Determine if camera sensor is actively delivering live optical heart rate
+    const isCameraActive = Boolean(cameraVitals?.isActive);
+    const hasLiveCameraPulse = Boolean(cameraVitals?.isActive && cameraVitals?.bpm);
+    const effectiveHeartRate = hasLiveCameraPulse
+        ? cameraVitals.bpm
+        : (telemetry?.heartRate ?? 72);
+    const effectiveRr = Math.round(60000 / effectiveHeartRate);
 
     return (
         <div className="space-y-6">
@@ -68,7 +78,11 @@ export default function LiveTelemetryTab({
 
             {/* Webcam Mode */}
             {streamSource === 'webcam' && (
-                <WebcamPpgSensor onBpmDetected={onApplyLiveBpm} isLiveAutoSync={true} />
+                <WebcamPpgSensor
+                    onBpmDetected={onApplyLiveBpm}
+                    isLiveAutoSync={true}
+                    onLiveReading={onCameraReadingChange}
+                />
             )}
 
             {/* Audio Mode */}
@@ -80,84 +94,122 @@ export default function LiveTelemetryTab({
                 />
             )}
 
-            {/* Real-Time Live Vitals Dashboard Grid */}
+            {/* Real-Time Live Vitals Dashboard Grid (Synchronized to Live Sensors & Ingest) */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                {/* Heart Rate */}
-                <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-2xl space-y-1">
+                {/* 1. Heart Rate (Dynamically driven by live webcam optical PPG when active) */}
+                <div className={`p-4 rounded-2xl border transition-all duration-300 space-y-1.5 ${
+                    hasLiveCameraPulse
+                        ? 'bg-emerald-950/30 border-emerald-500/50 shadow-lg shadow-emerald-500/10'
+                        : isCameraActive
+                        ? 'bg-amber-950/20 border-amber-500/40'
+                        : 'bg-slate-900/80 border-slate-800'
+                }`}>
                     <div className="flex items-center justify-between text-slate-400 text-xs">
-                        <span>Heart Rate</span>
-                        <Heart className="w-4 h-4 text-rose-500 animate-bounce" />
+                        <span className="font-medium text-slate-300">Heart Rate</span>
+                        <Heart className={`w-4 h-4 text-rose-500 ${effectiveHeartRate ? 'animate-bounce' : 'opacity-40'}`} />
                     </div>
-                    <div className="text-2xl font-bold font-mono text-slate-100">
-                        {telemetry?.heartRate ?? 72} <span className="text-xs font-normal text-slate-500">BPM</span>
+                    <div className="text-2xl font-bold font-mono text-slate-100 flex items-baseline gap-1">
+                        {effectiveHeartRate} <span className="text-xs font-normal text-slate-500">BPM</span>
                     </div>
-                    <span className="text-[10px] text-slate-400 font-mono">RR: {telemetry?.rrInterval ?? 800}ms</span>
+                    <div className="flex items-center justify-between text-[10px] font-mono pt-0.5">
+                        <span className="text-slate-400">RR: {effectiveRr}ms</span>
+                        {hasLiveCameraPulse ? (
+                            <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                <span>Live Camera</span>
+                            </span>
+                        ) : isCameraActive ? (
+                            <span className="text-amber-400 flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                <span>Detecting...</span>
+                            </span>
+                        ) : (
+                            <span className="text-slate-500">IoT Ingest</span>
+                        )}
+                    </div>
                 </div>
 
-                {/* SpO2 */}
-                <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-2xl space-y-1">
+                {/* 2. Blood Oxygen */}
+                <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-2xl space-y-1.5">
                     <div className="flex items-center justify-between text-slate-400 text-xs">
-                        <span>Blood Oxygen</span>
+                        <span className="font-medium text-slate-300">Blood Oxygen</span>
                         <Droplets className="w-4 h-4 text-cyan-400" />
                     </div>
                     <div className="text-2xl font-bold font-mono text-cyan-300">
                         {telemetry?.spO2 ?? 98}%
                     </div>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                        {telemetry?.spO2 < 92 ? '⚠️ Hypoxemia' : 'Normal Saturation'}
-                    </span>
+                    <div className="flex items-center justify-between text-[10px] font-mono pt-0.5">
+                        <span className="text-slate-400">
+                            {telemetry?.spO2 < 92 ? '⚠️ Hypoxemia' : 'Normal Saturation'}
+                        </span>
+                        <span className="text-cyan-400/80">SpO2</span>
+                    </div>
                 </div>
 
-                {/* Blood Pressure */}
-                <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-2xl space-y-1">
+                {/* 3. Blood Pressure */}
+                <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-2xl space-y-1.5">
                     <div className="flex items-center justify-between text-slate-400 text-xs">
-                        <span>Blood Pressure</span>
+                        <span className="font-medium text-slate-300">Blood Pressure</span>
                         <Activity className="w-4 h-4 text-amber-400" />
                     </div>
                     <div className="text-xl font-bold font-mono text-slate-100">
                         {telemetry?.bloodPressure?.systolic ?? 120}/{telemetry?.bloodPressure?.diastolic ?? 78}
                     </div>
-                    <span className="text-[10px] text-slate-400 font-mono">mmHg</span>
+                    <div className="flex items-center justify-between text-[10px] font-mono pt-0.5">
+                        <span className="text-slate-400">mmHg</span>
+                        <span className="text-amber-400/80">
+                            {(telemetry?.bloodPressure?.systolic ?? 120) >= 140 ? 'Hypertensive' : 'Normotensive'}
+                        </span>
+                    </div>
                 </div>
 
-                {/* Skin Temp */}
-                <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-2xl space-y-1">
+                {/* 4. Skin Temp */}
+                <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-2xl space-y-1.5">
                     <div className="flex items-center justify-between text-slate-400 text-xs">
-                        <span>Skin Temp</span>
+                        <span className="font-medium text-slate-300">Skin Temp</span>
                         <Thermometer className="w-4 h-4 text-emerald-400" />
                     </div>
                     <div className="text-2xl font-bold font-mono text-emerald-300">
                         {telemetry?.skinTemp ?? 36.8}°C
                     </div>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                        {telemetry?.skinTemp > 38.0 ? '🌡️ Febrile' : 'Afebrile'}
-                    </span>
+                    <div className="flex items-center justify-between text-[10px] font-mono pt-0.5">
+                        <span className="text-slate-400">
+                            {(telemetry?.skinTemp ?? 36.8) > 38.0 ? '🌡️ Febrile' : 'Afebrile'}
+                        </span>
+                        <span className="text-emerald-400/80">Thermal</span>
+                    </div>
                 </div>
 
-                {/* Respiration */}
-                <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-2xl space-y-1">
+                {/* 5. Respiration */}
+                <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-2xl space-y-1.5">
                     <div className="flex items-center justify-between text-slate-400 text-xs">
-                        <span>Respiration</span>
+                        <span className="font-medium text-slate-300">Respiration</span>
                         <Wind className="w-4 h-4 text-indigo-400" />
                     </div>
                     <div className="text-2xl font-bold font-mono text-indigo-300">
                         {telemetry?.respirationRate ?? 16}
                     </div>
-                    <span className="text-[10px] text-slate-400 font-mono">breaths/min</span>
+                    <div className="flex items-center justify-between text-[10px] font-mono pt-0.5">
+                        <span className="text-slate-400">breaths/min</span>
+                        <span className="text-indigo-400">Eupneic</span>
+                    </div>
                 </div>
 
-                {/* Live Composite Risk */}
-                <div className="p-4 bg-purple-950/20 border border-purple-500/30 rounded-2xl space-y-1">
+                {/* 6. Live Composite ML Risk Index */}
+                <div className="p-4 bg-purple-950/20 border border-purple-500/30 rounded-2xl space-y-1.5">
                     <div className="flex items-center justify-between text-purple-300 text-xs">
-                        <span>ML Risk Index</span>
+                        <span className="font-medium text-purple-200">ML Risk Index</span>
                         <ShieldAlert className="w-4 h-4 text-purple-400" />
                     </div>
                     <div className="text-2xl font-bold font-mono text-purple-300">
                         {riskResult?.riskScore ?? 24}%
                     </div>
-                    <span className="text-[10px] text-purple-400 font-mono font-bold">
-                        {riskResult?.riskLevel ?? 'Low'} Tier
-                    </span>
+                    <div className="flex items-center justify-between text-[10px] font-mono pt-0.5">
+                        <span className="text-purple-400 font-bold">
+                            {riskResult?.riskLevel ?? 'Low'} Tier
+                        </span>
+                        <span className="text-purple-400/80">AI Model</span>
+                    </div>
                 </div>
             </div>
 
