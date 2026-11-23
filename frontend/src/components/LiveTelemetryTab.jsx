@@ -19,13 +19,25 @@ export default function LiveTelemetryTab({
 }) {
     const [streamSource, setStreamSource] = useState('webcam'); // 'webcam' | 'audio'
 
-    // Determine if camera sensor is actively delivering live optical heart rate
+    // Determine if camera sensor is actively delivering live vitals
     const isCameraActive = Boolean(cameraVitals?.isActive);
     const hasLiveCameraPulse = Boolean(cameraVitals?.isActive && cameraVitals?.bpm);
     const effectiveHeartRate = hasLiveCameraPulse
         ? cameraVitals.bpm
         : (telemetry?.heartRate ?? 72);
     const effectiveRr = Math.round(60000 / effectiveHeartRate);
+
+    // Camera Constant Normotensive Optical Blood Pressure
+    const hasLiveCameraBp = Boolean(isCameraActive && cameraVitals?.bp);
+    const effectiveBp = hasLiveCameraBp
+        ? cameraVitals.bp
+        : (telemetry?.bloodPressure ?? { systolic: 120, diastolic: 78 });
+
+    // Camera Shoulder & Chest Motion Respiration Rate
+    const hasLiveCameraResp = Boolean(isCameraActive && cameraVitals?.respRate);
+    const effectiveRespRate = hasLiveCameraResp
+        ? cameraVitals.respRate
+        : (telemetry?.respirationRate ?? 16);
 
     return (
         <div className="space-y-6">
@@ -146,20 +158,32 @@ export default function LiveTelemetryTab({
                     </div>
                 </div>
 
-                {/* 3. Blood Pressure */}
-                <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-2xl space-y-1.5">
+                {/* 3. Blood Pressure (Optical BP stabilized with constant normotensive clamping) */}
+                <div className={`p-4 rounded-2xl border transition-all duration-300 space-y-1.5 ${
+                    hasLiveCameraBp
+                        ? 'bg-amber-950/20 border-amber-500/50 shadow-lg shadow-amber-500/10'
+                        : 'bg-slate-900/80 border-slate-800'
+                }`}>
                     <div className="flex items-center justify-between text-slate-400 text-xs">
                         <span className="font-medium text-slate-300">Blood Pressure</span>
                         <Activity className="w-4 h-4 text-amber-400" />
                     </div>
-                    <div className="text-xl font-bold font-mono text-slate-100">
-                        {telemetry?.bloodPressure?.systolic ?? 120}/{telemetry?.bloodPressure?.diastolic ?? 78}
+                    <div className="text-2xl font-bold font-mono text-slate-100 flex items-baseline gap-1">
+                        {effectiveBp.systolic}/{effectiveBp.diastolic}
+                        <span className="text-xs font-normal text-slate-500">mmHg</span>
                     </div>
                     <div className="flex items-center justify-between text-[10px] font-mono pt-0.5">
-                        <span className="text-slate-400">mmHg</span>
-                        <span className="text-amber-400/80">
-                            {(telemetry?.bloodPressure?.systolic ?? 120) >= 140 ? 'Hypertensive' : 'Normotensive'}
+                        <span className="text-emerald-400 font-semibold">
+                            {hasLiveCameraBp ? 'Normotensive (Constant)' : (effectiveBp.systolic >= 140 ? 'Hypertensive' : 'Normotensive')}
                         </span>
+                        {hasLiveCameraBp ? (
+                            <span className="text-amber-400 font-semibold flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                <span>Camera Optical BP</span>
+                            </span>
+                        ) : (
+                            <span className="text-slate-500">IoT Ingest</span>
+                        )}
                     </div>
                 </div>
 
@@ -180,18 +204,30 @@ export default function LiveTelemetryTab({
                     </div>
                 </div>
 
-                {/* 5. Respiration */}
-                <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-2xl space-y-1.5">
+                {/* 5. Respiration (Tracks live shoulder & chest excursions via camera) */}
+                <div className={`p-4 rounded-2xl border transition-all duration-300 space-y-1.5 ${
+                    hasLiveCameraResp
+                        ? 'bg-indigo-950/20 border-indigo-500/50 shadow-lg shadow-indigo-500/10'
+                        : 'bg-slate-900/80 border-slate-800'
+                }`}>
                     <div className="flex items-center justify-between text-slate-400 text-xs">
                         <span className="font-medium text-slate-300">Respiration</span>
                         <Wind className="w-4 h-4 text-indigo-400" />
                     </div>
-                    <div className="text-2xl font-bold font-mono text-indigo-300">
-                        {telemetry?.respirationRate ?? 16}
+                    <div className="text-2xl font-bold font-mono text-indigo-300 flex items-baseline gap-1">
+                        {effectiveRespRate}
+                        <span className="text-xs font-normal text-slate-500">breaths/min</span>
                     </div>
                     <div className="flex items-center justify-between text-[10px] font-mono pt-0.5">
-                        <span className="text-slate-400">breaths/min</span>
-                        <span className="text-indigo-400">Eupneic</span>
+                        <span className="text-slate-400">Eupneic</span>
+                        {hasLiveCameraResp ? (
+                            <span className="text-indigo-400 font-semibold flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                                <span>Shoulder &amp; Chest</span>
+                            </span>
+                        ) : (
+                            <span className="text-slate-500">IoT Ingest</span>
+                        )}
                     </div>
                 </div>
 

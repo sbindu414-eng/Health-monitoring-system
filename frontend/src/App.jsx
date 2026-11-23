@@ -85,14 +85,18 @@ export default function App() {
         liveTelemetry.start();
 
         const unsubscribe = liveTelemetry.subscribe((packet) => {
-            // If camera optical sensor is actively measuring, prioritize live camera BPM!
-            const isCamActive = cameraVitalsRef.current.isActive && cameraVitalsRef.current.bpm;
-            const activeHr = isCamActive ? cameraVitalsRef.current.bpm : packet.heartRate;
+            // If camera optical sensor is actively measuring, prioritize live camera vitals!
+            const isCamActive = Boolean(cameraVitalsRef.current?.isActive);
+            const activeHr = (isCamActive && cameraVitalsRef.current.bpm) ? cameraVitalsRef.current.bpm : packet.heartRate;
+            const activeBp = (isCamActive && cameraVitalsRef.current.bp) ? cameraVitalsRef.current.bp : packet.bloodPressure;
+            const activeResp = (isCamActive && cameraVitalsRef.current.respRate) ? cameraVitalsRef.current.respRate : packet.respirationRate;
             const activeRr = Math.round(60000 / activeHr);
 
             const enrichedPacket = {
                 ...packet,
                 heartRate: activeHr,
+                bloodPressure: activeBp,
+                respirationRate: activeResp,
                 rrInterval: activeRr
             };
 
@@ -374,8 +378,19 @@ export default function App() {
                         onCameraReadingChange={(reading) => {
                             cameraVitalsRef.current = reading;
                             setCameraVitals(reading);
-                            if (reading.bpm) {
-                                handleApplyLiveBpm(reading.bpm);
+                            if (reading.isActive) {
+                                setTelemetry((prev) => {
+                                    if (!prev) return prev;
+                                    return {
+                                        ...prev,
+                                        ...(reading.bpm ? { heartRate: reading.bpm, rrInterval: Math.round(60000 / reading.bpm) } : {}),
+                                        ...(reading.bp ? { bloodPressure: reading.bp } : {}),
+                                        ...(reading.respRate ? { respirationRate: reading.respRate } : {})
+                                    };
+                                });
+                                if (reading.bpm) {
+                                    setPatientData((prev) => ({ ...prev, heartRateResting: reading.bpm }));
+                                }
                             }
                         }}
                     />
