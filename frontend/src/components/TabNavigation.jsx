@@ -1,8 +1,7 @@
 import React from 'react';
-import { Home, Salad, Stethoscope, HeartPulse, Dumbbell, ShieldAlert, Radio } from 'lucide-react';
+import { Home, Salad, Stethoscope, HeartPulse, Dumbbell, ShieldAlert } from 'lucide-react';
 
 const tabs = [
-    { id: 'live', label: 'Live Biosensors & Stream', icon: Radio, badge: '🔴 Real-Time', isLive: true },
     { id: 'overview', label: 'Overview & Flow', icon: Home, badge: 'Pipeline' },
     { id: 'diet', label: 'Diet Suggestion', icon: Salad, badge: 'RF 89.2%' },
     { id: 'disease', label: 'Disease Diagnosis', icon: Stethoscope, badge: 'LogReg 86.7%' },
@@ -27,12 +26,10 @@ export default function TabNavigation({ activeTab, onSelectTab }) {
                                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40 border-transparent'
                         }`}
                     >
-                        <Icon className={`w-4 h-4 ${isActive ? 'text-indigo-400' : 'text-slate-500'} ${tab.isLive ? 'text-rose-500 animate-pulse' : ''}`} />
+                        <Icon className={`w-4 h-4 ${isActive ? 'text-indigo-400' : 'text-slate-500'}`} />
                         <span>{tab.label}</span>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                            tab.isLive
-                                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                                : isActive
+                            isActive
                                 ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
                                 : 'bg-slate-800 text-slate-400'
                         }`}>

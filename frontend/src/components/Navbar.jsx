@@ -1,15 +1,12 @@
 import React from 'react';
-import { Activity, Zap, LogOut, Radio, ShieldCheck } from 'lucide-react';
+import { Activity, Zap, LogOut } from 'lucide-react';
 
 export default function Navbar({
     session,
     onSignOut,
     onLoadPreset,
     onRunFullScan,
-    isScanning,
-    isLiveStreaming,
-    onToggleLiveStream,
-    onOpenLiveTab
+    isScanning
 }) {
     return (
         <header className="border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50">
@@ -30,35 +27,29 @@ export default function Navbar({
 
                 {/* Actions & Profiles */}
                 <div className="flex items-center gap-3">
-                    {/* Live Stream Switch */}
-                    <button
-                        onClick={onToggleLiveStream}
-                        title={isLiveStreaming ? "Pause Live Biosensor Stream" : "Resume Live Biosensor Stream"}
-                        className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 border transition-all ${
-                            isLiveStreaming
-                                ? 'bg-rose-950/40 border-rose-500/50 text-rose-300 shadow-sm shadow-rose-500/20'
-                                : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
-                        }`}
-                    >
-                        <Radio className={`w-3.5 h-3.5 ${isLiveStreaming ? 'text-rose-400 animate-pulse' : 'text-slate-500'}`} />
-                        <span>{isLiveStreaming ? 'Live Stream: ACTIVE' : 'Live Stream: PAUSED'}</span>
-                    </button>
-
-                    {/* Patient Presets */}
-                    <div className="hidden lg:flex items-center gap-1.5">
+                    {/* Clinical Patient Profile Presets */}
+                    <div className="hidden sm:flex items-center gap-1.5">
+                        <span className="text-[11px] text-slate-500 font-mono mr-1">Presets:</span>
                         <button
                             onClick={() => onLoadPreset('athlete')}
                             className="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-500/30 transition-all"
-                            title="Load Athlete Telemetry"
+                            title="Load Athlete Clinical Profile"
                         >
                             🏃 Athlete
                         </button>
                         <button
-                            onClick={() => onLoadPreset('exercise')}
+                            onClick={() => onLoadPreset('cardiac')}
                             className="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 transition-all"
-                            title="Load Exercise Tachycardia Stream"
+                            title="Load Cardiac Clinical Profile"
                         >
-                            ⚡ Exertion
+                            ⚡ Cardiac
+                        </button>
+                        <button
+                            onClick={() => onLoadPreset('standard')}
+                            className="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-cyan-500/30 transition-all"
+                            title="Load Standard Profile"
+                        >
+                            📋 Standard
                         </button>
                     </div>
 

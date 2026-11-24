@@ -92,10 +92,10 @@ export default function OverviewTab({ onSelectTab, onRunFullScan, results }) {
                             <Zap className="w-4 h-4" /> Run 5-Module Sequential Scan
                         </button>
                         <button
-                            onClick={() => onSelectTab('live')}
+                            onClick={() => onSelectTab('risk')}
                             className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 font-medium text-xs border border-slate-700 transition-all flex items-center gap-1.5"
                         >
-                            <span>🔴</span> View Real-Time Biosensors <ArrowRight className="w-3.5 h-3.5" />
+                            <span>🛡️</span> View Risk Stratification <ArrowRight className="w-3.5 h-3.5" />
                         </button>
                     </div>
                 </div>

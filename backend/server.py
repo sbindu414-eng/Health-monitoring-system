@@ -58,146 +58,6 @@ DISEASE_CLASSES = [
 
 ECG_CLASSES = ["NSR", "AF", "STEMI", "LBBB", "RBBB", "AVB"]
 
-# Global telemetry state for real-time streaming
-CURRENT_SCENARIO = "normal"
-PACKET_COUNTER = 0
-
-TELEMETRY_SMOOTH_STATE = {
-    "hr": 72.0,
-    "spo2": 98.4,
-    "sys": 120.0,
-    "dia": 78.0,
-    "temp": 36.8,
-    "hrv": 45.0,
-    "resp": 16.0,
-    "last_scenario": "normal"
-}
-
-def generate_telemetry_packet(scenario="normal"):
-    global PACKET_COUNTER, TELEMETRY_SMOOTH_STATE
-    PACKET_COUNTER += 1
-    t = time.time()
-
-    # Inertial baseline targets with gentle physiological sinus rhythm (no erratic noise)
-    if scenario == "athlete":
-        target = {
-            "hr": 52.0 + math.sin(t * 0.15) * 1.5,
-            "spo2": 99.0,
-            "sys": 114.0 + math.sin(t * 0.1) * 2.0,
-            "dia": 72.0 + math.sin(t * 0.1) * 1.0,
-            "temp": 36.6,
-            "hrv": 68.0,
-            "rr": 1150,
-            "resp": 12,
-            "ecg_cond": "NSR",
-            "symptoms": [],
-            "severity": "Normal"
-        }
-    elif scenario == "exercise":
-        target = {
-            "hr": 135.0 + math.sin(t * 0.25) * 3.0,
-            "spo2": 97.0,
-            "sys": 142.0 + math.sin(t * 0.15) * 3.0,
-            "dia": 88.0 + math.sin(t * 0.15) * 2.0,
-            "temp": 37.4,
-            "hrv": 28.0,
-            "rr": 450,
-            "resp": 26,
-            "ecg_cond": "NSR",
-            "symptoms": ["palpitations", "fatigue"],
-            "severity": "Moderate"
-        }
-    elif scenario == "afib":
-        target = {
-            "hr": 142.0 + math.sin(t * 0.3) * 4.0,
-            "spo2": 95.0,
-            "sys": 138.0 + math.sin(t * 0.2) * 3.0,
-            "dia": 90.0 + math.sin(t * 0.2) * 2.0,
-            "temp": 36.9,
-            "hrv": 105.0,
-            "rr": 520,
-            "resp": 22,
-            "ecg_cond": "AF",
-            "symptoms": ["palpitations", "dizziness", "irregular_pulse", "fatigue"],
-            "severity": "High"
-        }
-    elif scenario == "stemi":
-        target = {
-            "hr": 106.0 + math.sin(t * 0.2) * 2.5,
-            "spo2": 93.0,
-            "sys": 164.0 + math.sin(t * 0.15) * 3.0,
-            "dia": 102.0 + math.sin(t * 0.15) * 2.0,
-            "temp": 37.1,
-            "hrv": 18.0,
-            "rr": 570,
-            "resp": 24,
-            "ecg_cond": "ST_ELEV",
-            "symptoms": ["chest_pain", "jaw_arm_pain", "cold_sweat", "shortness_breath", "nausea"],
-            "severity": "Critical"
-        }
-    elif scenario == "hypoxia":
-        target = {
-            "hr": 112.0 + math.sin(t * 0.2) * 2.0,
-            "spo2": 87.0,
-            "sys": 132.0 + math.sin(t * 0.15) * 2.5,
-            "dia": 84.0 + math.sin(t * 0.15) * 1.5,
-            "temp": 38.6,
-            "hrv": 32.0,
-            "rr": 620,
-            "resp": 30,
-            "ecg_cond": "NSR",
-            "symptoms": ["fever", "cough", "sob", "chills", "fatigue"],
-            "severity": "High"
-        }
-    else:  # normal baseline
-        target = {
-            "hr": 72.0 + math.sin(t * 0.15) * 1.5,
-            "spo2": 98.2,
-            "sys": 120.0 + math.sin(t * 0.1) * 1.5,
-            "dia": 78.0 + math.sin(t * 0.1) * 1.0,
-            "temp": 36.8,
-            "hrv": 45.0,
-            "rr": 830,
-            "resp": 16,
-            "ecg_cond": "NSR",
-            "symptoms": [],
-            "severity": "Normal"
-        }
-
-    # Inertial filter: smooth exponential transitions to prevent visual jumping
-    alpha = 0.45 if TELEMETRY_SMOOTH_STATE.get("last_scenario") != scenario else 0.12
-    TELEMETRY_SMOOTH_STATE["last_scenario"] = scenario
-
-    TELEMETRY_SMOOTH_STATE["hr"] = round(TELEMETRY_SMOOTH_STATE["hr"] * (1 - alpha) + target["hr"] * alpha, 2)
-    TELEMETRY_SMOOTH_STATE["spo2"] = round(TELEMETRY_SMOOTH_STATE["spo2"] * (1 - alpha) + target["spo2"] * alpha, 2)
-    TELEMETRY_SMOOTH_STATE["sys"] = round(TELEMETRY_SMOOTH_STATE["sys"] * (1 - alpha) + target["sys"] * alpha, 2)
-    TELEMETRY_SMOOTH_STATE["dia"] = round(TELEMETRY_SMOOTH_STATE["dia"] * (1 - alpha) + target["dia"] * alpha, 2)
-    TELEMETRY_SMOOTH_STATE["temp"] = round(TELEMETRY_SMOOTH_STATE["temp"] * (1 - alpha) + target["temp"] * alpha, 2)
-    TELEMETRY_SMOOTH_STATE["hrv"] = round(TELEMETRY_SMOOTH_STATE["hrv"] * (1 - alpha) + target["hrv"] * alpha, 2)
-    TELEMETRY_SMOOTH_STATE["resp"] = round(TELEMETRY_SMOOTH_STATE["resp"] * (1 - alpha) + target["resp"] * alpha, 2)
-
-    return {
-        "packetId": PACKET_COUNTER,
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "scenario": scenario,
-        "heartRate": int(round(TELEMETRY_SMOOTH_STATE["hr"])),
-        "spO2": int(min(100, round(TELEMETRY_SMOOTH_STATE["spo2"]))),
-        "bloodPressure": {
-            "systolic": int(round(TELEMETRY_SMOOTH_STATE["sys"])),
-            "diastolic": int(round(TELEMETRY_SMOOTH_STATE["dia"]))
-        },
-        "skinTemp": round(TELEMETRY_SMOOTH_STATE["temp"], 1),
-        "hrv": int(round(TELEMETRY_SMOOTH_STATE["hrv"])),
-        "rrInterval": target["rr"],
-        "respirationRate": int(round(TELEMETRY_SMOOTH_STATE["resp"])),
-        "ecgCondition": target["ecg_cond"],
-        "activeSymptoms": target["symptoms"],
-        "severity": target["severity"],
-        "streamStatus": "ONLINE",
-        "throughput": "10 pkts/sec",
-        "latencyMs": 14.2
-    }
-
 class HealthMLAPIHandler(BaseHTTPRequestHandler):
     def _set_headers(self, status=200, content_type='application/json'):
         self.send_response(status)
@@ -211,15 +71,13 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
         self._set_headers(200)
 
     def do_GET(self):
-        global CURRENT_SCENARIO
         if self.path == '/api/health':
             self._set_headers(200)
             self.wfile.write(json.dumps({
                 "status": "ONLINE",
                 "version": "2.0.0",
-                "framework": "Real-Time Multi-Domain ML Telemetry Pipeline",
-                "modules": 5,
-                "realtimeEngine": "Active"
+                "framework": "Modular ML Health Monitoring Framework",
+                "modules": 5
             }).encode('utf-8'))
         elif self.path == '/api/models/status':
             self._set_headers(200)
@@ -236,18 +94,7 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
                 "metadata": MODEL_METADATA
             }
             self.wfile.write(json.dumps(status_data).encode('utf-8'))
-        elif self.path.startswith('/api/telemetry/live'):
-            # Return live telemetry packet
-            packet = generate_telemetry_packet(CURRENT_SCENARIO)
-            self._set_headers(200)
-            self.wfile.write(json.dumps(packet).encode('utf-8'))
-        elif self.path.startswith('/api/telemetry/scenario/'):
-            # Set scenario via URL
-            scen = self.path.split('/')[-1]
-            if scen in ["normal", "athlete", "exercise", "afib", "stemi", "hypoxia"]:
-                CURRENT_SCENARIO = scen
-            self._set_headers(200)
-            self.wfile.write(json.dumps({"scenario": CURRENT_SCENARIO, "status": "UPDATED"}).encode('utf-8'))
+        
         elif self.path.startswith('/api/'):
             self._set_headers(404)
             self.wfile.write(json.dumps({"error": "Endpoint not found"}).encode('utf-8'))
@@ -281,7 +128,6 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": "File not found"}).encode('utf-8'))
 
     def do_POST(self):
-        global CURRENT_SCENARIO
         content_length = int(self.headers.get('Content-Length', 0))
         post_data = self.rfile.read(content_length) if content_length > 0 else b'{}'
         
@@ -290,18 +136,7 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
         except Exception:
             body = {}
 
-        if self.path == '/api/telemetry/scenario':
-            scen = body.get('scenario', 'normal')
-            CURRENT_SCENARIO = scen
-            self._set_headers(200)
-            self.wfile.write(json.dumps({
-                "status": "SUCCESS",
-                "scenario": CURRENT_SCENARIO,
-                "packet": generate_telemetry_packet(CURRENT_SCENARIO)
-            }).encode('utf-8'))
-            return
-
-        elif self.path == '/api/auth/login':
+        if self.path == '/api/auth/login':
             self._set_headers(200)
             username = body.get('username', '').lower()
             res = {
@@ -568,7 +403,7 @@ def run(default_port=5000):
         try:
             server_address = ('', p)
             httpd = HTTPServer(server_address, HealthMLAPIHandler)
-            print(f"Backend Real-Time Telemetry API Server running on http://localhost:{p}/", flush=True)
+            print(f"Modular ML Health Monitoring API Server running on http://localhost:{p}/", flush=True)
             httpd.serve_forever()
             break
         except OSError as e:
