@@ -174,7 +174,7 @@ export const api = {
     },
 
     async getEyeStatus() {
-        const res = await fetch(`${API_BASE}/eye/status`, { signal: AbortSignal.timeout(5000) });
+        const res = await fetch(`${API_BASE}/eye/status`, { signal: AbortSignal.timeout(15000) });
         if (!res.ok) throw new Error('Unable to fetch eye analysis model status');
         return await res.json();
     },
@@ -202,7 +202,7 @@ export const api = {
     },
 
     async getEyeHistory(limit = 30) {
-        const res = await fetch(`${API_BASE}/eye/history?limit=${limit}`, { signal: AbortSignal.timeout(5000) });
+        const res = await fetch(`${API_BASE}/eye/history?limit=${limit}`, { signal: AbortSignal.timeout(15000) });
         if (!res.ok) throw new Error('Unable to load prediction history');
         return await res.json();
     },

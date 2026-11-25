@@ -17,7 +17,7 @@ from email.policy import default as email_default_policy
 from urllib.parse import urlparse, parse_qs, unquote
 import numpy as np
 import joblib
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if ROOT_DIR not in sys.path:
@@ -127,8 +127,11 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _send_json(self, status: int, payload: dict):
-        self._set_headers(status)
-        self.wfile.write(json.dumps(payload).encode('utf-8'))
+        try:
+            self._set_headers(status)
+            self.wfile.write(json.dumps(payload).encode('utf-8'))
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            pass
 
     def _serve_file(self, file_path: str):
         if not file_path or not os.path.isfile(file_path):
@@ -144,9 +147,12 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
                 mime = 'text/html; charset=utf-8'
             else:
                 mime = 'application/octet-stream'
-        self._set_headers(200, content_type=mime)
-        with open(file_path, 'rb') as f:
-            self.wfile.write(f.read())
+        try:
+            self._set_headers(200, content_type=mime)
+            with open(file_path, 'rb') as f:
+                self.wfile.write(f.read())
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            pass
 
     def do_OPTIONS(self):
         self._set_headers(200)
@@ -335,6 +341,8 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
                 })
                 result["historyId"] = history_id
                 self._send_json(200, result)
+            except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                pass
             except ValueError as ve:
                 self._send_json(400, {"error": str(ve), "status": "invalid_image"})
             except Exception as exc:
@@ -630,6 +638,11 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
             self._set_headers(404)
             self.wfile.write(json.dumps({"error": "Endpoint not found"}).encode('utf-8'))
 
+class HealthThreadingHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
 def run(default_port=5000):
     import sys
     init_db()
@@ -639,7 +652,7 @@ def run(default_port=5000):
     for p in [port, 5001, 5002, 8080]:
         try:
             server_address = ('', p)
-            httpd = HTTPServer(server_address, HealthMLAPIHandler)
+            httpd = HealthThreadingHTTPServer(server_address, HealthMLAPIHandler)
             print(f"Modular ML Health Monitoring API Server running on http://localhost:{p}/", flush=True)
             httpd.serve_forever()
             break

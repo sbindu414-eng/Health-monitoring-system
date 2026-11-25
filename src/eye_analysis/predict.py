@@ -9,6 +9,7 @@ reports this status explicitly rather than inventing random outputs.
 import argparse
 import json
 import os
+import threading
 from typing import Dict, Optional, Tuple
 
 import joblib
@@ -57,75 +58,78 @@ _RETINAL_MODEL_CACHE = None
 _RETINAL_META_CACHE = None
 _RETINAL_MTIME_CACHE = None
 _PIMA_CACHE = None
+_MODEL_LOAD_LOCK = threading.Lock()
 
 
 def load_retinal_bundle() -> Tuple[Optional[torch.nn.Module], Dict]:
     """Load trained retinal CNN weights & configs efficiently once (reloading if checkpoint updated)."""
     global _RETINAL_MODEL_CACHE, _RETINAL_META_CACHE, _RETINAL_MTIME_CACHE
 
-    if not os.path.exists(RETINAL_MODEL_PATH):
-        _RETINAL_MODEL_CACHE = None
-        _RETINAL_META_CACHE = None
-        _RETINAL_MTIME_CACHE = None
-        return None, {"trained": False, "message": "Retinal DR model weights not found. Run training script first."}
+    with _MODEL_LOAD_LOCK:
+        if not os.path.exists(RETINAL_MODEL_PATH):
+            _RETINAL_MODEL_CACHE = None
+            _RETINAL_META_CACHE = None
+            _RETINAL_MTIME_CACHE = None
+            return None, {"trained": False, "message": "Retinal DR model weights not found. Run training script first."}
 
-    cur_mtime = os.path.getmtime(RETINAL_MODEL_PATH)
-    if (
-        _RETINAL_MODEL_CACHE is not None
-        and _RETINAL_META_CACHE is not None
-        and _RETINAL_MTIME_CACHE == cur_mtime
-    ):
-        return _RETINAL_MODEL_CACHE, _RETINAL_META_CACHE
+        cur_mtime = os.path.getmtime(RETINAL_MODEL_PATH)
+        if (
+            _RETINAL_MODEL_CACHE is not None
+            and _RETINAL_META_CACHE is not None
+            and _RETINAL_MTIME_CACHE == cur_mtime
+        ):
+            return _RETINAL_MODEL_CACHE, _RETINAL_META_CACHE
 
-    ckpt = torch.load(RETINAL_MODEL_PATH, map_location="cpu", weights_only=False)
-    arch = ckpt.get("arch", "mobilenet_v3_small")
-    image_size = int(ckpt.get("image_size", 224))
-    apply_clahe = bool(ckpt.get("apply_clahe", True))
-    any_dr_threshold = float(ckpt.get("any_dr_threshold", 0.55))
-    use_tta = bool(ckpt.get("use_tta", True))
+        ckpt = torch.load(RETINAL_MODEL_PATH, map_location="cpu", weights_only=False)
+        arch = ckpt.get("arch", "mobilenet_v3_small")
+        image_size = int(ckpt.get("image_size", 224))
+        apply_clahe = bool(ckpt.get("apply_clahe", True))
+        any_dr_threshold = float(ckpt.get("any_dr_threshold", 0.55))
+        use_tta = bool(ckpt.get("use_tta", True))
 
-    model = build_backbone_model(arch=arch, num_classes=int(ckpt.get("num_classes", 5)), pretrained=False)
-    model.load_state_dict(ckpt["state_dict"])
-    model.eval()
+        model = build_backbone_model(arch=arch, num_classes=int(ckpt.get("num_classes", 5)), pretrained=False)
+        model.load_state_dict(ckpt["state_dict"])
+        model.eval()
 
-    labels = DR_CLASS_NAMES
-    if os.path.exists(LABELS_PATH):
-        with open(LABELS_PATH, "r", encoding="utf-8") as f:
-            raw_lbls = json.load(f).get("labels", {})
-            labels = {int(k): v for k, v in raw_lbls.items()}
+        labels = DR_CLASS_NAMES
+        if os.path.exists(LABELS_PATH):
+            with open(LABELS_PATH, "r", encoding="utf-8") as f:
+                raw_lbls = json.load(f).get("labels", {})
+                labels = {int(k): v for k, v in raw_lbls.items()}
 
-    eval_summary = {}
-    if os.path.exists(EVAL_REPORT_PATH):
-        with open(EVAL_REPORT_PATH, "r", encoding="utf-8") as f:
-            eval_summary = json.load(f)
+        eval_summary = {}
+        if os.path.exists(EVAL_REPORT_PATH):
+            with open(EVAL_REPORT_PATH, "r", encoding="utf-8") as f:
+                eval_summary = json.load(f)
 
-    meta = {
-        "trained": True,
-        "arch": arch,
-        "image_size": image_size,
-        "apply_clahe": apply_clahe,
-        "any_dr_threshold": any_dr_threshold,
-        "use_tta": use_tta,
-        "trained_at": ckpt.get("trained_at"),
-        "best_epoch": ckpt.get("best_epoch"),
-        "labels": labels,
-        "evaluation": eval_summary,
-    }
-    _RETINAL_MODEL_CACHE = model
-    _RETINAL_META_CACHE = meta
-    _RETINAL_MTIME_CACHE = cur_mtime
-    return model, meta
+        meta = {
+            "trained": True,
+            "arch": arch,
+            "image_size": image_size,
+            "apply_clahe": apply_clahe,
+            "any_dr_threshold": any_dr_threshold,
+            "use_tta": use_tta,
+            "trained_at": ckpt.get("trained_at"),
+            "best_epoch": ckpt.get("best_epoch"),
+            "labels": labels,
+            "evaluation": eval_summary,
+        }
+        _RETINAL_MODEL_CACHE = model
+        _RETINAL_META_CACHE = meta
+        _RETINAL_MTIME_CACHE = cur_mtime
+        return model, meta
 
 
 def load_pima_bundle() -> Optional[Dict]:
     """Load trained tabular Pima diabetes classifier once."""
     global _PIMA_CACHE
-    if _PIMA_CACHE is not None:
+    with _MODEL_LOAD_LOCK:
+        if _PIMA_CACHE is not None:
+            return _PIMA_CACHE
+        if not os.path.exists(PIMA_MODEL_PATH):
+            return None
+        _PIMA_CACHE = joblib.load(PIMA_MODEL_PATH)
         return _PIMA_CACHE
-    if not os.path.exists(PIMA_MODEL_PATH):
-        return None
-    _PIMA_CACHE = joblib.load(PIMA_MODEL_PATH)
-    return _PIMA_CACHE
 
 
 def get_eye_module_status() -> Dict:
