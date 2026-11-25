@@ -756,7 +756,22 @@ export default function EyeAnalysisTab({ session }) {
 
                             {/* Experimental Anterior Iris Segmentation Visualization & CV Features */}
                             {analysisResult.detected_modality === 'anterior_iris' && analysisResult.iris_analysis && (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-950/70 border border-slate-800 rounded-xl p-4">
+                                <div className="space-y-4">
+                                    <div className="p-3.5 rounded-xl bg-amber-950/35 border border-amber-500/45 text-xs text-amber-200 space-y-1">
+                                        <div className="font-bold text-amber-300 flex items-center gap-1.5">
+                                            <AlertTriangle className="w-4 h-4" />
+                                            <span>Why Diabetes / Blood Sugar Is Not Diagnosed From This Photo</span>
+                                        </div>
+                                        <p className="leading-relaxed">
+                                            This is an <strong>external eye / iris photograph</strong> (not an internal retinal fundus scan). Even in a diabetic (&ldquo;sugar&rdquo;) patient, diabetes cannot be detected from an ordinary photo of the iris or front of the eye.
+                                        </p>
+                                        <p className="text-[11px] text-amber-300/90">
+                                            &bull; To screen eye blood vessel damage from diabetes: upload a <strong>Retinal Fundus scan</strong> (or try the unseen test fundus samples on the left).<br />
+                                            &bull; To screen diabetes risk from health values: use the <strong>Pima Clinical Diabetes Screening</strong> form below.
+                                        </p>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-950/70 border border-slate-800 rounded-xl p-4">
                                     <div className="space-y-2">
                                         <div className="text-xs font-bold text-emerald-300">
                                             OpenCV Iris Segmentation Overlay
@@ -805,6 +820,7 @@ export default function EyeAnalysisTab({ session }) {
                                                 </span>
                                             </li>
                                         </ul>
+                                    </div>
                                     </div>
                                 </div>
                             )}

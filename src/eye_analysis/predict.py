@@ -46,7 +46,7 @@ GLUCOSE_BOUNDARY_MESSAGE = (
 )
 
 DR_CLINICAL_GUIDANCE = {
-    0: "No diabetic retinopathy signs detected on retinal scan. Continue routine annual eye screening.",
+    0: "No diabetic retinopathy signs seen on this retinal scan. Note: A diabetic patient can still have a normal retina if microvascular eye damage has not developed — blood glucose testing is still required.",
     1: "Mild non-proliferative features (e.g., microaneurysms) suspected. Schedule periodic ophthalmic follow-up.",
     2: "Moderate non-proliferative diabetic retinopathy suspected. Refer to ophthalmologist for dilated exam.",
     3: "Severe diabetic retinopathy risk detected. Prompt specialist ophthalmology referral recommended.",
@@ -256,11 +256,14 @@ def analyze_uploaded_eye_image(
         "valid_eye_image": True,
         "analysis_mode": analysis_mode,
         "detected_modality": "anterior_iris",
-        "modality_note": modality_info["reason"],
+        "modality_note": (
+            "External anterior eye / iris photograph detected (NOT a retinal fundus scan). "
+            "Diabetic retinopathy screening requires an internal retinal fundus scan, and external iris photos cannot diagnose diabetes."
+        ),
         "file_meta": file_meta,
         "quality": quality,
         "model_name": "OpenCV Iris Segmentation & CV Feature Extractor (Experimental)",
-        "prediction_label": "Iris detected & segmented (Experimental CV — No Diabetes Diagnosis)",
+        "prediction_label": "External Iris Segmented (Cannot Screen Diabetes From Iris Photo)",
         "confidence_pct": quality["quality_score"],
         "iris_detected": iris_res["iris_detected"],
         "segmentation_completed": iris_res["segmentation_completed"],

@@ -4,7 +4,7 @@
 [![Vite](https://img.shields.io/badge/Vite-8.3-646cff.svg)](https://vitejs.dev/)
 [![Python](https://img.shields.io/badge/Python-3.13-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.15%20CPU-ee4c2c.svg)](https://pytorch.org/)
-[![OpenCV](https://img.shields.io/badge/OpenCV-5.1-5C3EE8.svg)](https://opencv.org/)
+[![OpenCV](https://img.shields.io/badge/OpenCV-4.14-5C3EE8.svg)](https://opencv.org/)
 [![License](https://img.shields.io/badge/License-ISC-green.svg)](LICENSE)
 
 > A multi-domain machine learning clinical decision support dashboard built with **React**, **Python**, **Scikit-Learn**, **PyTorch**, **OpenCV**, and **SQLite**, integrating nutritional diet planning, symptom pathology diagnosis, 12-lead ECG classification, physical fitness estimation, composite risk stratification, and **AI Eye Image Analysis & Diabetes Screening**.

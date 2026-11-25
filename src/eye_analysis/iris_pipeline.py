@@ -36,8 +36,8 @@ def _locate_eye_roi(gray: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
         boxes = cascade.detectMultiScale(
             eq,
             scaleFactor=1.08,
-            minNeighbors=4,
-            minSize=(max(30, min(h, w) // 6), max(30, min(h, w) // 6)),
+            minNeighbors=3,
+            minSize=(max(20, min(h, w) // 10), max(20, min(h, w) // 10)),
         )
         if len(boxes) > 0:
             # Choose largest eye detection closest to image center
@@ -101,10 +101,10 @@ def analyze_iris_image(rgb_np: np.ndarray) -> Dict:
         roi_blurred,
         cv2.HOUGH_GRADIENT,
         dp=1.2,
-        minDist=max(20, min_dim // 3),
+        minDist=max(20, min_dim // 5),
         param1=65,
-        param2=28,
-        minRadius=max(int(pupil_r * 1.6), min_dim // 7),
+        param2=24,
+        minRadius=max(int(pupil_r * 1.5), min_dim // 16),
         maxRadius=max(int(pupil_r * 4.5), int(min_dim * 0.46)),
     )
 

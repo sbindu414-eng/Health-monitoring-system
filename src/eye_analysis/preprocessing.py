@@ -190,7 +190,7 @@ def _anterior_eye_heuristics(rgb_np: np.ndarray) -> Dict:
     h, w = gray.shape
     min_side = min(h, w)
 
-    # 1. Haar cascade eye detection
+    # 1. Haar cascade eye detection (handles both single-eye and two-eye portrait photos)
     eye_cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_eye.xml")
     haar_eyes = []
     if os.path.exists(eye_cascade_path):
@@ -198,47 +198,62 @@ def _anterior_eye_heuristics(rgb_np: np.ndarray) -> Dict:
         eq = cv2.equalizeHist(gray)
         detected = cascade.detectMultiScale(
             eq,
-            scaleFactor=1.1,
-            minNeighbors=4,
-            minSize=(max(24, min_side // 8), max(24, min_side // 8)),
+            scaleFactor=1.08,
+            minNeighbors=3,
+            minSize=(max(20, min_side // 10), max(20, min_side // 10)),
         )
         if len(detected) > 0:
             haar_eyes = [tuple(map(int, box)) for box in detected]
 
-    # 2. Concentric iris/pupil circle test (works well for macro iris close-ups where Haar face context is absent)
-    blurred = cv2.GaussianBlur(gray, (7, 7), 1.5)
+    # 2. Concentric iris/pupil/sclera circle test with outward radial gradient symmetry
+    blurred = cv2.GaussianBlur(gray, (5, 5), 1.2)
+    gx = cv2.Sobel(blurred, cv2.CV_64F, 1, 0, ksize=3)
+    gy = cv2.Sobel(blurred, cv2.CV_64F, 0, 1, ksize=3)
     circles = cv2.HoughCircles(
         blurred,
         cv2.HOUGH_GRADIENT,
         dp=1.2,
-        minDist=max(20, min_side // 4),
-        param1=70,
-        param2=32,
-        minRadius=max(10, min_side // 10),
+        minDist=max(20, min_side // 5),
+        param1=65,
+        param2=27,
+        minRadius=max(14, min_side // 16),
         maxRadius=max(20, int(min_side * 0.48)),
     )
 
     valid_circle_hit = False
     best_circle = None
     if circles is not None:
-        cy_img, cx_img = h / 2.0, w / 2.0
+        cy_img = h / 2.0
+        thetas = np.linspace(0, 2.0 * np.pi, 36, endpoint=False)
         for c in np.round(circles[0, :]).astype(int):
             cx, cy, r = int(c[0]), int(c[1]), int(c[2])
-            if 0 <= cx < w and 0 <= cy < h and r >= 10:
-                # Check darker inner pupil vs surrounding iris/sclera brightness contrast
+            if 0 <= cx < w and 0 <= cy < h and r >= 14:
+                # Verify radial outward brightness transition around circular rim (eliminates square grids)
+                pts, radial_hits = 0, 0
+                for th in thetas:
+                    px = int(round(cx + r * np.cos(th)))
+                    py = int(round(cy + r * np.sin(th)))
+                    if 0 <= px < w and 0 <= py < h:
+                        pts += 1
+                        dot = gx[py, px] * np.cos(th) + gy[py, px] * np.sin(th)
+                        if dot > 12.0:
+                            radial_hits += 1
+                outward_ratio = radial_hits / max(1, pts)
+
                 yy, xx = np.ogrid[:h, :w]
                 dist2 = (xx - cx) ** 2 + (yy - cy) ** 2
                 inner_mask = dist2 <= (r * 0.42) ** 2
-                ring_mask = (dist2 > (r * 0.50) ** 2) & (dist2 <= (r * 0.95) ** 2)
-                outer_mask = (dist2 > (r * 1.05) ** 2) & (dist2 <= (r * 1.45) ** 2)
+                ring_mask = (dist2 > (r * 0.45) ** 2) & (dist2 <= (r * 0.95) ** 2)
+                outer_mask = (dist2 > (r * 1.05) ** 2) & (dist2 <= (r * 1.55) ** 2)
                 if np.any(inner_mask) and np.any(ring_mask):
                     inner_val = float(np.mean(gray[inner_mask]))
                     ring_val = float(np.mean(gray[ring_mask]))
                     outer_val = float(np.mean(gray[outer_mask])) if np.any(outer_mask) else ring_val
-                    # Classic eye intensity gradient: dark pupil <= colored iris <= bright sclera
-                    if inner_val + 8 < ring_val or (inner_val < 75 and outer_val > inner_val + 20):
-                        dist_center = np.hypot(cx - cx_img, cy - cy_img) / max(1.0, min_side)
-                        if dist_center < 0.45 or len(haar_eyes) > 0:
+                    is_pupil_dark = inner_val + 8 < ring_val
+                    is_iris_in_sclera = (ring_val + 14 < outer_val) and (inner_val < outer_val - 10)
+                    if (is_pupil_dark or is_iris_in_sclera) and outward_ratio >= 0.42:
+                        vert_offset = abs(cy - cy_img) / max(1.0, h)
+                        if vert_offset < 0.36 or len(haar_eyes) > 0:
                             valid_circle_hit = True
                             best_circle = (cx, cy, r)
                             break
