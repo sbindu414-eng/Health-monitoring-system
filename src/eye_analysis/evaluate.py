@@ -1,30 +1,36 @@
 """
-Independent Held-Out Test Set Evaluation Script.
+Independent Held-Out & Cross-Dataset Test Evaluation Script.
 
-Evaluates the saved retinal DR classifier strictly on `data/retinal_fundus/test.csv`.
-Calculates & saves:
-- Overall Accuracy, Precision, Recall, F1-Score (macro & weighted)
-- Confusion matrix + heatmap plot
-- Multi-class One-vs-Rest ROC-AUC + ROC curves plot
-- Per-class Precision, Recall (Sensitivity), F1-score, Specificity, and Support
-- Referable Diabetic Retinopathy (Grades 2-4 vs Grades 0-1) Sensitivity & False Negatives
+Evaluates the saved retinal DR classifier strictly on unseen test sets:
+1. Primary Multi-Center Held-Out Test Split (`data/retinal_fundus/test.csv`)
+2. External Zero-Shot Cross-Dataset Validation (`data/retinal_fundus/external_messidor2.csv`)
+
+Computes & saves:
+- Accuracy, Macro & Weighted Precision, Recall, F1-Score
+- Quadratic Weighted Kappa (QWK)
+- Multi-class One-vs-Rest ROC-AUC + ROC Curves plot
+- Per-class Sensitivity (Recall), Specificity, Precision, F1, False Negatives
+- Per-dataset-source breakdown & Confusion Matrix heatmap
+- Any-DR (>= Grade 1) and Referable DR (>= Grade 2) screening metrics
 """
 
 import argparse
 import json
 import os
 import time
-from typing import Dict
+from typing import Dict, Optional
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import torch
 from sklearn.metrics import (
     accuracy_score,
     auc,
     classification_report,
+    cohen_kappa_score,
     confusion_matrix,
     f1_score,
     precision_score,
@@ -42,7 +48,7 @@ from src.eye_analysis.train_retinal import RetinalFundusDataset, build_backbone_
 MODELS_DIR = os.path.join(ROOT_DIR, "models")
 
 
-def _plot_confusion_matrix(cm: np.ndarray, class_labels: list, out_png: str) -> None:
+def _plot_confusion_matrix(cm: np.ndarray, class_labels: list, out_png: str, title: str = "Retinal Fundus DR Test Set Confusion Matrix") -> None:
     """Save clean annotated confusion matrix figure."""
     fig, ax = plt.subplots(figsize=(7.5, 6.2))
     im = ax.imshow(cm, interpolation="nearest", cmap=plt.cm.Blues)
@@ -63,11 +69,11 @@ def _plot_confusion_matrix(cm: np.ndarray, class_labels: list, out_png: str) -> 
         yticklabels=short_labels,
         ylabel="True Clinical Grade",
         xlabel="Predicted Clinical Grade",
-        title="Retinal Fundus DR Test Set Confusion Matrix",
+        title=title,
     )
     plt.setp(ax.get_xticklabels(), rotation=30, ha="right", rotation_mode="anchor")
 
-    thresh = cm.max() / 2.0
+    thresh = cm.max() / 2.0 if cm.max() > 0 else 0.5
     for i in range(cm.shape[0]):
         for j in range(cm.shape[1]):
             ax.text(
@@ -111,32 +117,24 @@ def _plot_roc_curves(y_true: np.ndarray, y_probs: np.ndarray, out_png: str) -> N
     plt.close(fig)
 
 
-def evaluate_retinal_model(
-    model_path: str = os.path.join(MODELS_DIR, "retinal_dr_model.pth"),
-    test_csv: str = os.path.join(RETINAL_DIR, "test.csv"),
+def _evaluate_csv_split(
+    model: torch.nn.Module,
+    ckpt: Dict,
+    csv_path: str,
+    save_plots: bool = False,
 ) -> Dict:
-    """Evaluate trained retinal DR classifier on the unseen held-out test set."""
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Trained model not found at {model_path}. Run train_retinal.py first.")
-    if not os.path.exists(test_csv):
-        raise FileNotFoundError(f"Held-out test CSV not found at {test_csv}. Run dataset_prep.py first.")
-
-    ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
-    arch = ckpt["arch"]
+    """Run deterministic evaluation on a single held-out CSV split without leaking into training."""
     image_size = int(ckpt.get("image_size", 224))
     apply_clahe = bool(ckpt.get("apply_clahe", True))
-    any_dr_threshold = float(ckpt.get("any_dr_threshold", 0.50))
+    any_dr_threshold = float(ckpt.get("any_dr_threshold", 0.52))
     use_tta = bool(ckpt.get("use_tta", True))
 
-    model = build_backbone_model(arch=arch, num_classes=5, pretrained=False)
-    model.load_state_dict(ckpt["state_dict"])
-    model.eval()
-
     test_ds = RetinalFundusDataset(
-        test_csv,
+        csv_path,
         transform=get_eval_transforms(image_size),
         image_size=image_size,
         apply_clahe=apply_clahe,
+        cache_preprocessed=False,
     )
     test_loader = DataLoader(test_ds, batch_size=32, shuffle=False, num_workers=0)
 
@@ -149,11 +147,14 @@ def evaluate_retinal_model(
             probs = predict_batch_tta(model, x_batch) if use_tta else torch.softmax(model(x_batch), dim=1)
             probs_np = probs.numpy()
             for row_p in probs_np:
+                raw_am = int(np.argmax(row_p))
                 p_any = float(np.sum(row_p[1:]))
-                if p_any >= any_dr_threshold:
-                    pred_cls = int(np.argmax(row_p))
-                    if pred_cls == 0:
-                        pred_cls = int(1 + np.argmax(row_p[1:]))
+                det = bool(
+                    (p_any >= any_dr_threshold and raw_am >= 1)
+                    or (p_any >= max(0.65, any_dr_threshold))
+                )
+                if det:
+                    pred_cls = raw_am if raw_am >= 1 else int(1 + np.argmax(row_p[1:]))
                 else:
                     pred_cls = 0
                 all_preds.append(pred_cls)
@@ -171,10 +172,10 @@ def evaluate_retinal_model(
     rec_weighted = float(recall_score(y_true, y_pred, average="weighted", zero_division=0))
     f1_macro = float(f1_score(y_true, y_pred, average="macro", zero_division=0))
     f1_weighted = float(f1_score(y_true, y_pred, average="weighted", zero_division=0))
+    qwk = float(cohen_kappa_score(y_true, y_pred, weights="quadratic"))
 
     cm = confusion_matrix(y_true, y_pred, labels=[0, 1, 2, 3, 4])
 
-    # Multi-class OvR ROC-AUC
     present_classes = sorted(list(set(y_true.tolist())))
     try:
         if len(present_classes) == 5:
@@ -187,7 +188,6 @@ def evaluate_retinal_model(
         roc_auc_ovr_macro = None
         roc_auc_ovr_weighted = None
 
-    # Per-class metrics including Sensitivity (Recall) and Specificity
     per_class = {}
     total_samples = int(np.sum(cm))
     for cls_idx in range(5):
@@ -209,7 +209,6 @@ def evaluate_retinal_model(
             "false_negatives": fn,
         }
 
-    # Screening sensitivity: Referable DR (Grade >= 2 vs Grade <= 1) AND Any-DR (Grade >= 1 vs Grade 0)
     ref_true = (y_true >= 2).astype(int)
     ref_pred = (y_pred >= 2).astype(int)
     ref_prob = np.sum(y_probs[:, 2:], axis=1)
@@ -228,15 +227,29 @@ def evaluate_retinal_model(
     any_spec = a_tn / max(1, a_tn + a_fp)
     any_auc = float(roc_auc_score(any_true, any_prob)) if len(np.unique(any_true)) == 2 else None
 
-    _plot_confusion_matrix(cm, list(DR_CLASS_NAMES.values()), os.path.join(MODELS_DIR, "confusion_matrix.png"))
-    _plot_roc_curves(y_true, y_probs, os.path.join(MODELS_DIR, "roc_curves.png"))
+    # Optional per-dataset-source breakdown if column is present
+    per_source = {}
+    if "dataset_source" in test_ds.df.columns:
+        sources = test_ds.df["dataset_source"].astype(str).values
+        for src in sorted(np.unique(sources)):
+            m = sources == src
+            if int(np.sum(m)) == 0:
+                continue
+            yt_s, yp_s = y_true[m], y_pred[m]
+            at_s, ap_s = (yt_s >= 1).astype(int), (yp_s >= 1).astype(int)
+            per_source[src] = {
+                "samples": int(np.sum(m)),
+                "accuracy": round(float(accuracy_score(yt_s, yp_s)), 4),
+                "qwk": round(float(cohen_kappa_score(yt_s, yp_s, weights="quadratic")), 4),
+                "any_dr_sensitivity": round(float(recall_score(at_s, ap_s, zero_division=0)), 4),
+                "any_dr_specificity": round(float(recall_score(1 - at_s, 1 - ap_s, zero_division=0)), 4),
+            }
 
-    report = {
-        "evaluated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "backbone_architecture": arch,
-        "best_epoch": int(ckpt.get("best_epoch", 0)),
-        "any_dr_threshold": round(any_dr_threshold, 3),
-        "test_time_augmentation": use_tta,
+    if save_plots:
+        _plot_confusion_matrix(cm, list(DR_CLASS_NAMES.values()), os.path.join(MODELS_DIR, "confusion_matrix.png"))
+        _plot_roc_curves(y_true, y_probs, os.path.join(MODELS_DIR, "roc_curves.png"))
+
+    return {
         "test_samples": int(len(y_true)),
         "overall_metrics": {
             "accuracy": round(acc, 4),
@@ -246,6 +259,7 @@ def evaluate_retinal_model(
             "recall_weighted": round(rec_weighted, 4),
             "f1_macro": round(f1_macro, 4),
             "f1_weighted": round(f1_weighted, 4),
+            "quadratic_weighted_kappa": round(qwk, 4),
             "roc_auc_ovr_macro": round(roc_auc_ovr_macro, 4) if roc_auc_ovr_macro is not None else None,
             "roc_auc_ovr_weighted": round(roc_auc_ovr_weighted, 4) if roc_auc_ovr_weighted is not None else None,
         },
@@ -265,6 +279,7 @@ def evaluate_retinal_model(
                 "roc_auc": round(ref_auc, 4) if ref_auc is not None else None,
             },
         },
+        "per_source_metrics": per_source,
         "per_class_metrics": per_class,
         "confusion_matrix": cm.tolist(),
         "classification_report_text": classification_report(
@@ -274,9 +289,49 @@ def evaluate_retinal_model(
             target_names=[DR_CLASS_NAMES[i] for i in range(5)],
             zero_division=0,
         ),
+    }
+
+
+def evaluate_retinal_model(
+    model_path: str = os.path.join(MODELS_DIR, "retinal_dr_model.pth"),
+    test_csv: str = os.path.join(RETINAL_DIR, "test.csv"),
+    external_csv: Optional[str] = os.path.join(RETINAL_DIR, "external_messidor2.csv"),
+) -> Dict:
+    """Evaluate trained retinal DR classifier on primary test split & optional external Messidor-2 set."""
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Trained model not found at {model_path}. Run train_retinal.py first.")
+    if not os.path.exists(test_csv):
+        raise FileNotFoundError(f"Held-out test CSV not found at {test_csv}. Run dataset_prep.py first.")
+
+    ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
+    arch = ckpt["arch"]
+    model = build_backbone_model(arch=arch, num_classes=5, pretrained=False)
+    model.load_state_dict(ckpt["state_dict"])
+    model.eval()
+
+    primary_eval = _evaluate_csv_split(model, ckpt, test_csv, save_plots=True)
+
+    external_eval = None
+    if external_csv and os.path.exists(external_csv):
+        external_eval = _evaluate_csv_split(model, ckpt, external_csv, save_plots=False)
+
+    report = {
+        "evaluated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "model_version": ckpt.get("model_version", "1.0.0"),
+        "backbone_architecture": arch,
+        "best_epoch": int(ckpt.get("best_epoch", 0)),
+        "any_dr_threshold": round(float(ckpt.get("any_dr_threshold", 0.52)), 3),
+        "test_time_augmentation": bool(ckpt.get("use_tta", True)),
+        **primary_eval,
+        "external_cross_dataset_validation": external_eval,
         "limitations": (
-            f"Evaluated strictly on internal held-out test images (DeepDRiD / RetinaMNIST, n={len(y_true)} after cross-split deduplication). "
-            "Internal benchmark accuracy must NOT be interpreted as multi-site prospective clinical validation."
+            f"Evaluated on independent held-out multi-center test scans (n={primary_eval['test_samples']}) "
+            + (
+                f"and zero-shot external Messidor-2 scans (n={external_eval['test_samples']}). "
+                if external_eval
+                else ". "
+            )
+            + "Benchmark accuracy must NOT be interpreted as prospective clinical validation or regulatory clearance."
         ),
     }
 
@@ -284,20 +339,47 @@ def evaluate_retinal_model(
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
 
-    print("\n=== HELD-OUT TEST SET EVALUATION ===")
-    print(f"Accuracy:          {acc * 100:.2f}%")
-    print(f"Macro F1-Score:    {f1_macro * 100:.2f}%")
-    print(f"Weighted F1-Score: {f1_weighted * 100:.2f}%")
-    if roc_auc_ovr_macro is not None:
-        print(f"OvR ROC-AUC Macro: {roc_auc_ovr_macro:.4f}")
-    print(f"Referable DR (>=2) Sensitivity: {ref_sens * 100:.2f}% (False Negatives: {r_fn})")
-    print(f"Any DR (>=1)       Sensitivity: {any_sens * 100:.2f}% (False Negatives: {a_fn})")
-    print(f"Confusion Matrix saved -> {os.path.join(MODELS_DIR, 'confusion_matrix.png')}")
+    om = report["overall_metrics"]
+    sa = report["screening_sensitivity_analysis"]
+    print("\n=== HELD-OUT MULTI-CENTER TEST SET EVALUATION ===", flush=True)
+    print(f"Architecture:      {arch} (version={report['model_version']}, epoch={report['best_epoch']})", flush=True)
+    print(f"Accuracy:          {om['accuracy'] * 100:.2f}%", flush=True)
+    print(f"QWK (Quadratic):   {om['quadratic_weighted_kappa']:.4f}", flush=True)
+    print(f"Macro F1-Score:    {om['f1_macro'] * 100:.2f}%", flush=True)
+    print(f"Weighted F1-Score: {om['f1_weighted'] * 100:.2f}%", flush=True)
+    if om["roc_auc_ovr_macro"] is not None:
+        print(f"OvR ROC-AUC Macro: {om['roc_auc_ovr_macro']:.4f}", flush=True)
+    print(
+        f"Any DR (>=1):      Sens={sa['any_dr_detection']['sensitivity_recall'] * 100:.2f}% | "
+        f"Spec={sa['any_dr_detection']['specificity'] * 100:.2f}% | AUC={sa['any_dr_detection']['roc_auc']}",
+        flush=True,
+    )
+    print(
+        f"Referable (>=2):   Sens={sa['referable_dr_detection_grade_2plus']['sensitivity_recall'] * 100:.2f}% | "
+        f"Spec={sa['referable_dr_detection_grade_2plus']['specificity'] * 100:.2f}% | "
+        f"AUC={sa['referable_dr_detection_grade_2plus']['roc_auc']}",
+        flush=True,
+    )
+    if report["per_source_metrics"]:
+        print("Per-Source Breakdown:", json.dumps(report["per_source_metrics"], indent=2), flush=True)
+    if external_eval:
+        em = external_eval["overall_metrics"]
+        es = external_eval["screening_sensitivity_analysis"]
+        print(
+            f"\n=== EXTERNAL ZERO-SHOT CROSS-DATASET (Messidor-2, n={external_eval['test_samples']}) ===",
+            flush=True,
+        )
+        print(
+            f"Acc={em['accuracy'] * 100:.2f}% | QWK={em['quadratic_weighted_kappa']:.4f} | "
+            f"Macro-F1={em['f1_macro'] * 100:.2f}% | Any-DR Sens={es['any_dr_detection']['sensitivity_recall'] * 100:.2f}% "
+            f"Spec={es['any_dr_detection']['specificity'] * 100:.2f}%",
+            flush=True,
+        )
     return report
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate Retinal DR Classifier on Held-Out Test Split")
+    parser = argparse.ArgumentParser(description="Evaluate Retinal DR Classifier on Held-Out & External Splits")
     parser.parse_args()
     evaluate_retinal_model()
 

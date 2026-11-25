@@ -10,27 +10,13 @@ import {
     CheckCircle2,
     XCircle,
     Loader2,
-    History,
-    Trash2,
     BarChart3,
     Activity,
     ShieldAlert,
     Info,
     Image as ImageIcon,
-    Calculator,
 } from 'lucide-react';
 import { api } from '../services/api';
-
-const DEFAULT_PIMA_INPUTS = {
-    pregnancies: 1,
-    glucose: 118,
-    bloodPressure: 74,
-    skinThickness: 24,
-    insulin: 88,
-    bmi: 26.8,
-    dpf: 0.42,
-    age: 38,
-};
 
 export default function EyeAnalysisTab({ session }) {
     const fileInputRef = useRef(null);
@@ -51,26 +37,19 @@ export default function EyeAnalysisTab({ session }) {
 
     const [moduleStatus, setModuleStatus] = useState(null);
     const [analysisResult, setAnalysisResult] = useState(null);
-    const [historyItems, setHistoryItems] = useState([]);
     const [showEvalPanel, setShowEvalPanel] = useState(false);
 
-    // Separate Tabular Diabetes Risk State (Pima Indians Diabetes Database)
-    const [pimaInputs, setPimaInputs] = useState(DEFAULT_PIMA_INPUTS);
-    const [pimaResult, setPimaResult] = useState(null);
-    const [isRunningPima, setIsRunningPima] = useState(false);
-
-    const loadStatusAndHistory = async () => {
+    const loadStatus = async () => {
         try {
-            const [st, hist] = await Promise.all([api.getEyeStatus(), api.getEyeHistory(25)]);
+            const st = await api.getEyeStatus();
             setModuleStatus(st);
-            setHistoryItems(hist.eye_history || []);
         } catch (err) {
-            console.error('Eye module status/history error:', err);
+            console.error('Eye module status error:', err);
         }
     };
 
     useEffect(() => {
-        loadStatusAndHistory();
+        loadStatus();
     }, []);
 
     useEffect(() => {
@@ -206,7 +185,7 @@ export default function EyeAnalysisTab({ session }) {
                 userRole: session?.role || 'Clinician',
             });
             setAnalysisResult(res);
-            await loadStatusAndHistory();
+            await loadStatus();
         } catch (err) {
             setErrorMsg(err.message || 'Analysis failed.');
         } finally {
@@ -214,40 +193,12 @@ export default function EyeAnalysisTab({ session }) {
         }
     };
 
-    const handleDeleteHistory = async (id) => {
-        try {
-            await api.deleteEyeHistoryItem(id);
-            setHistoryItems((prev) => prev.filter((item) => item.id !== id));
-        } catch (err) {
-            setErrorMsg(err.message);
-        }
-    };
-
-    const handleClearHistory = async () => {
-        try {
-            await api.clearEyeHistory();
-            setHistoryItems([]);
-        } catch (err) {
-            setErrorMsg(err.message);
-        }
-    };
-
-    const handleRunPimaRisk = async (e) => {
-        e?.preventDefault();
-        setIsRunningPima(true);
-        try {
-            const res = await api.predictTabularDiabetes(pimaInputs);
-            setPimaResult(res);
-        } catch (err) {
-            setErrorMsg(err.message);
-        } finally {
-            setIsRunningPima(false);
-        }
-    };
-
     const evalSummary = moduleStatus?.retinal_evaluation || {};
     const overallMetrics = evalSummary?.overall_metrics || {};
     const sensitivityMetrics = evalSummary?.screening_sensitivity_analysis || {};
+    const externalEval = evalSummary?.external_cross_dataset_validation || null;
+    const perSourceMetrics = evalSummary?.per_source_metrics || {};
+    const modelComparison = moduleStatus?.retinal_comparison || null;
     const samples = moduleStatus?.sample_images || [];
 
     const probEntries = analysisResult?.class_probabilities
@@ -265,7 +216,7 @@ export default function EyeAnalysisTab({ session }) {
                         </span>
                         <span className="text-[11px] font-mono px-2.5 py-1 rounded-full bg-slate-950/70 border border-slate-700 text-slate-300">
                             {moduleStatus?.retinal_model_trained
-                                ? `CNN Ready (${moduleStatus.retinal_architecture})`
+                                ? `CNN Ready (${moduleStatus.retinal_architecture}${moduleStatus.retinal_model_version ? ` v${moduleStatus.retinal_model_version}` : ''})`
                                 : 'Checking Model Status...'}
                         </span>
                     </div>
@@ -283,7 +234,7 @@ export default function EyeAnalysisTab({ session }) {
                     AI Eye Image Analysis &amp; Diabetic Retinopathy Screening
                 </h2>
                 <p className="text-xs text-slate-300 leading-relaxed max-w-4xl">
-                    Scientifically distinguishes between <strong>Retinal Fundus Screening</strong> (5-grade ICDR diabetic retinopathy grading via transfer learning CNN trained on DeepDRiD / RetinaMNIST), <strong>Anterior Eye / Iris CV Segmentation</strong> (experimental OpenCV pupil/iris segmentation &amp; quality gating), and <strong>Clinical Tabular Diabetes Risk</strong> (separate Pima Indians Diabetes model).
+                    Scientifically separates <strong>Retinal Fundus Screening</strong> (5-grade ICDR CNN trained across multi-center EyePACS, IDRiD, DeepDRiD/RetinaMNIST &amp; APTOS 2019 scans with Grad-CAM explainability, uncertainty flagging &amp; zero-shot Messidor-2 external benchmark), <strong>Anterior Eye / Iris CV Segmentation</strong> (experimental OpenCV pupil/iris segmentation &amp; quality gating), and <strong>Clinical Tabular Diabetes Risk</strong> (separate Pima Indians Diabetes model).
                 </p>
 
                 <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-2.5">
@@ -301,18 +252,24 @@ export default function EyeAnalysisTab({ session }) {
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
                         <div>
                             <h3 className="text-sm font-bold text-sky-300 flex items-center gap-2">
-                                <BarChart3 className="w-4 h-4" /> Held-Out Test Split Evaluation (Unseen Test Set, n={evalSummary.test_samples})
+                                <BarChart3 className="w-4 h-4" /> Held-Out Multi-Center Test Evaluation (Unseen Test Set, n={evalSummary.test_samples})
                             </h3>
                             <p className="text-[11px] text-slate-400 mt-0.5">
-                                Backbone: {evalSummary.backbone_architecture} (Best Epoch {evalSummary.best_epoch}) • Patient-disjoint RetinaMNIST / DeepDRiD split
+                                Backbone: {evalSummary.backbone_architecture} (Best Epoch {evalSummary.best_epoch}) • Deduplicated EyePACS + IDRiD + DeepDRiD + APTOS 2019 test split
                             </p>
                         </div>
                         <span className="text-[10px] font-mono px-2.5 py-1 rounded bg-slate-950 border border-slate-700 text-slate-300">
-                            Academic Internal Benchmark (Not Clinical Validation)
+                            Academic Screening Benchmark (Not Clinical Validation)
                         </span>
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-center">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-center">
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                            <div className="text-[10px] text-slate-400 uppercase font-mono">QWK (Kappa)</div>
+                            <div className="text-lg font-bold font-mono text-cyan-300 mt-0.5">
+                                {overallMetrics.quadratic_weighted_kappa !== undefined ? overallMetrics.quadratic_weighted_kappa.toFixed(3) : 'N/A'}
+                            </div>
+                        </div>
                         <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
                             <div className="text-[10px] text-slate-400 uppercase font-mono">Accuracy</div>
                             <div className="text-lg font-bold font-mono text-sky-300 mt-0.5">
@@ -326,30 +283,104 @@ export default function EyeAnalysisTab({ session }) {
                             </div>
                         </div>
                         <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                            <div className="text-[10px] text-slate-400 uppercase font-mono">Weighted F1</div>
-                            <div className="text-lg font-bold font-mono text-indigo-300 mt-0.5">
-                                {(overallMetrics.f1_weighted * 100).toFixed(2)}%
-                            </div>
-                        </div>
-                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
                             <div className="text-[10px] text-slate-400 uppercase font-mono">OvR ROC-AUC</div>
                             <div className="text-lg font-bold font-mono text-purple-300 mt-0.5">
                                 {overallMetrics.roc_auc_ovr_macro?.toFixed(3) ?? 'N/A'}
                             </div>
                         </div>
                         <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                            <div className="text-[10px] text-slate-400 uppercase font-mono">Any-DR Sensitivity</div>
+                            <div className="text-[10px] text-slate-400 uppercase font-mono">Any-DR Sens.</div>
                             <div className="text-lg font-bold font-mono text-amber-300 mt-0.5">
                                 {((sensitivityMetrics.any_dr_detection?.sensitivity_recall || 0) * 100).toFixed(1)}%
                             </div>
                         </div>
                         <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                            <div className="text-[10px] text-slate-400 uppercase font-mono">Referable DR Sens.</div>
+                            <div className="text-[10px] text-slate-400 uppercase font-mono">Any-DR Spec.</div>
+                            <div className="text-lg font-bold font-mono text-teal-300 mt-0.5">
+                                {((sensitivityMetrics.any_dr_detection?.specificity || 0) * 100).toFixed(1)}%
+                            </div>
+                        </div>
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                            <div className="text-[10px] text-slate-400 uppercase font-mono">Referable Sens.</div>
                             <div className="text-lg font-bold font-mono text-rose-300 mt-0.5">
                                 {((sensitivityMetrics.referable_dr_detection_grade_2plus?.sensitivity_recall || 0) * 100).toFixed(1)}%
                             </div>
                         </div>
                     </div>
+
+                    {/* Per-Dataset Breakdown & External Messidor-2 Benchmark */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {Object.keys(perSourceMetrics).length > 0 && (
+                            <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-3.5 space-y-2">
+                                <div className="text-xs font-bold text-slate-200">Test Breakdown by Camera / Dataset Source</div>
+                                <div className="space-y-1.5 text-[11px] font-mono">
+                                    {Object.entries(perSourceMetrics).map(([srcName, m]) => (
+                                        <div key={srcName} className="flex flex-wrap justify-between items-center gap-2 py-1 border-b border-slate-800/70 last:border-b-0">
+                                            <span className="text-sky-300">{srcName} (n={m.samples})</span>
+                                            <span className="text-slate-300">
+                                                QWK: {m.qwk?.toFixed(3)} · Acc: {(m.accuracy * 100).toFixed(1)}% · Sens/Spec: {(m.any_dr_sensitivity * 100).toFixed(0)}%/{(m.any_dr_specificity * 100).toFixed(0)}%
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {externalEval?.overall_metrics && (
+                            <div className="bg-slate-950/90 border border-cyan-500/30 rounded-xl p-3.5 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-cyan-300">
+                                        External Cross-Dataset Validation: Messidor-2 (n={externalEval.test_samples})
+                                    </span>
+                                    <span className="text-[10px] font-mono text-cyan-400">Zero-Shot Unseen Cohort</span>
+                                </div>
+                                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 text-center text-[11px] font-mono pt-1">
+                                    <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                                        <div className="text-[9px] text-slate-400">QWK</div>
+                                        <div className="text-cyan-300 font-bold">{externalEval.overall_metrics.quadratic_weighted_kappa?.toFixed(3)}</div>
+                                    </div>
+                                    <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                                        <div className="text-[9px] text-slate-400">Acc</div>
+                                        <div className="text-sky-300 font-bold">{(externalEval.overall_metrics.accuracy * 100).toFixed(1)}%</div>
+                                    </div>
+                                    <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                                        <div className="text-[9px] text-slate-400">Macro F1</div>
+                                        <div className="text-emerald-300 font-bold">{(externalEval.overall_metrics.f1_macro * 100).toFixed(1)}%</div>
+                                    </div>
+                                    <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                                        <div className="text-[9px] text-slate-400">Any-DR Sens</div>
+                                        <div className="text-amber-300 font-bold">{((externalEval.screening_sensitivity_analysis?.any_dr_detection?.sensitivity_recall || 0) * 100).toFixed(1)}%</div>
+                                    </div>
+                                    <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                                        <div className="text-[9px] text-slate-400">Any-DR Spec</div>
+                                        <div className="text-teal-300 font-bold">{((externalEval.screening_sensitivity_analysis?.any_dr_detection?.specificity || 0) * 100).toFixed(1)}%</div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {modelComparison?.candidates?.length > 0 && (
+                        <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-3.5 space-y-2">
+                            <div className="text-xs font-bold text-slate-200">
+                                Validation-Driven Architecture Selection (Winner: <span className="text-emerald-300 font-mono">{modelComparison.selected_winner}</span>)
+                            </div>
+                            <div className="flex flex-wrap gap-3 text-[11px] font-mono">
+                                {modelComparison.candidates.map((cand) => (
+                                    <div
+                                        key={cand.arch}
+                                        className={`px-3 py-1.5 rounded-lg border ${
+                                            cand.arch === modelComparison.selected_winner
+                                                ? 'border-emerald-500/50 bg-emerald-950/30 text-emerald-200'
+                                                : 'border-slate-800 bg-slate-900 text-slate-300'
+                                        }`}
+                                    >
+                                        <span className="font-bold">{cand.arch}</span> (ep {cand.best_epoch}): Val QWK={cand.val_qwk?.toFixed(3)} · F1={(cand.val_macro_f1 * 100).toFixed(1)}% · Acc={(cand.val_accuracy * 100).toFixed(1)}%
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-2 text-center space-y-1">
@@ -362,7 +393,7 @@ export default function EyeAnalysisTab({ session }) {
                         </div>
                         <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-2 text-center space-y-1">
                             <img src="/api/eye/plots/training_history.png" alt="Training Curves" className="w-full rounded-lg" />
-                            <div className="text-[11px] text-slate-400 font-mono">Training &amp; Validation Loss/F1</div>
+                            <div className="text-[11px] text-slate-400 font-mono">Training &amp; Validation Loss/F1/QWK</div>
                         </div>
                     </div>
                 </div>
@@ -644,26 +675,51 @@ export default function EyeAnalysisTab({ session }) {
                     {!isAnalyzing && analysisResult && (
                         <div className="space-y-4">
 
-                            {/* Binary Result Card — Strictly for Retinal Fundus Scans ONLY */}
+                            {/* Binary / Uncertainty Result Card — Strictly for Retinal Fundus Scans ONLY */}
                             {analysisResult.status === 'completed' && analysisResult.detected_modality === 'retinal_fundus' && analysisResult.binary_label && (
                                 <div
                                     className={`rounded-2xl p-5 border-2 text-center shadow-lg ${
-                                        analysisResult.diabetes_detected
-                                            ? 'bg-amber-950/40 border-amber-400/70 shadow-amber-900/30'
-                                            : 'bg-emerald-950/40 border-emerald-400/70 shadow-emerald-900/30'
+                                        analysisResult.is_uncertain
+                                            ? 'bg-yellow-950/35 border-yellow-400/70 shadow-yellow-900/25'
+                                            : analysisResult.diabetes_detected
+                                                ? 'bg-amber-950/40 border-amber-400/70 shadow-amber-900/30'
+                                                : 'bg-emerald-950/40 border-emerald-400/70 shadow-emerald-900/30'
                                     }`}
                                 >
                                     <div className={`text-2xl sm:text-3xl font-black tracking-tight mb-1 ${
-                                        analysisResult.diabetes_detected ? 'text-amber-300' : 'text-emerald-300'
+                                        analysisResult.is_uncertain
+                                            ? 'text-yellow-300'
+                                            : analysisResult.diabetes_detected
+                                                ? 'text-amber-300'
+                                                : 'text-emerald-300'
                                     }`}>
-                                        {analysisResult.diabetes_detected ? '⚠ DIABETIC RETINOPATHY DETECTED' : '✓ NO DIABETIC RETINOPATHY SIGNS'}
+                                        {analysisResult.is_uncertain
+                                            ? '⚠ PREDICTION UNCERTAIN — REVIEW RECOMMENDED'
+                                            : analysisResult.diabetes_detected
+                                                ? '⚠ DIABETIC RETINOPATHY DETECTED'
+                                                : '✓ NO DIABETIC RETINOPATHY SIGNS'}
                                     </div>
                                     <div className={`text-sm font-semibold mb-2 ${
-                                        analysisResult.diabetes_detected ? 'text-amber-200' : 'text-emerald-200'
+                                        analysisResult.is_uncertain
+                                            ? 'text-yellow-200'
+                                            : analysisResult.diabetes_detected
+                                                ? 'text-amber-200'
+                                                : 'text-emerald-200'
                                     }`}>
-                                        Severity: {analysisResult.severity_tier || '—'}
+                                        {analysisResult.is_uncertain ? 'Provisional Grade: ' : 'Severity: '}
+                                        {analysisResult.severity_tier || '—'}
                                         {analysisResult.confidence_pct > 0 && ` · Model Confidence: ${analysisResult.confidence_pct}%`}
                                     </div>
+                                    {analysisResult.is_uncertain && analysisResult.uncertainty_warning && (
+                                        <p className="text-xs text-yellow-200/95 bg-yellow-950/50 border border-yellow-500/40 rounded-xl px-3.5 py-2 max-w-2xl mx-auto mb-2">
+                                            {analysisResult.uncertainty_warning}
+                                            {analysisResult.uncertainty?.uncertainty_reasons?.length > 0 && (
+                                                <span className="block text-[10px] font-mono text-yellow-300/80 mt-1">
+                                                    Triggers: {analysisResult.uncertainty.uncertainty_reasons.join(' • ')} (Entropy: {analysisResult.uncertainty.normalized_entropy}, Top-2 Margin: {analysisResult.uncertainty.top2_margin_pct}%)
+                                                </span>
+                                            )}
+                                        </p>
+                                    )}
                                     {analysisResult.severity_description && (
                                         <p className="text-xs text-slate-300 max-w-lg mx-auto">
                                             {analysisResult.severity_description}
@@ -819,6 +875,68 @@ export default function EyeAnalysisTab({ session }) {
                                 </div>
                             )}
 
+                            {/* Real PyTorch Grad-CAM Explainability & Clinical Screening Report */}
+                            {analysisResult.status === 'completed' && analysisResult.detected_modality === 'retinal_fundus' && (analysisResult.gradcam?.available || analysisResult.clinical_report) && (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {analysisResult.gradcam?.available && (
+                                        <div className="bg-slate-950/75 border border-slate-800 rounded-xl p-4 space-y-2.5">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <div className="text-xs font-bold text-cyan-300">
+                                                    CNN Grad-CAM Spatial Activation Map
+                                                </div>
+                                                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-300">
+                                                    {analysisResult.gradcam.target_layer}
+                                                </span>
+                                            </div>
+                                            {analysisResult.gradcam_overlay_image && (
+                                                <img
+                                                    src={analysisResult.gradcam_overlay_image}
+                                                    alt="Retinal Grad-CAM Overlay"
+                                                    className="w-full max-h-52 object-contain rounded-lg bg-black border border-slate-800"
+                                                />
+                                            )}
+                                            <div className="text-[11px] font-mono text-slate-300 space-y-1">
+                                                <div>
+                                                    Peak Region: <span className="text-cyan-300">{analysisResult.gradcam.focus_region}</span>
+                                                </div>
+                                                <div>
+                                                    High-Activation Coverage: <span className="text-slate-200">{analysisResult.gradcam.peak_activation_pct}%</span> of retinal FOV
+                                                </div>
+                                            </div>
+                                            {analysisResult.gradcam.disclaimer && (
+                                                <p className="text-[10px] text-slate-400 leading-relaxed border-t border-slate-800/80 pt-2">
+                                                    {analysisResult.gradcam.disclaimer}
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {analysisResult.clinical_report && (
+                                        <div className="bg-slate-950/75 border border-slate-800 rounded-xl p-4 space-y-2.5 text-xs">
+                                            <div className="flex flex-wrap items-center justify-between gap-1">
+                                                <div className="font-bold text-sky-300">ICDR Structured Screening Summary</div>
+                                                <span className="text-[10px] font-mono text-slate-400">AAO / ETDRS</span>
+                                            </div>
+                                            <div className="font-semibold text-white">{analysisResult.clinical_report.headline}</div>
+                                            <p className="text-slate-300 leading-relaxed">{analysisResult.clinical_report.summary}</p>
+                                            <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 space-y-1">
+                                                <div className="text-[10px] font-mono text-slate-400 uppercase">ICDR Clinical Criteria</div>
+                                                <div className="text-[11px] text-slate-300">{analysisResult.clinical_report.clinical_criteria}</div>
+                                            </div>
+                                            <div className="p-2.5 rounded-lg bg-sky-950/30 border border-sky-500/30 space-y-1">
+                                                <div className="text-[10px] font-mono text-sky-300 uppercase">Recommended Next Step</div>
+                                                <div className="text-[11px] text-slate-200">{analysisResult.clinical_report.recommended_action}</div>
+                                            </div>
+                                            {analysisResult.clinical_report.gradcam_focus_note && (
+                                                <div className="text-[11px] text-slate-400 font-mono">
+                                                    {analysisResult.clinical_report.gradcam_focus_note}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
                             {/* Anterior Iris Segmentation Visualization & CV Features */}
                             {analysisResult.detected_modality === 'anterior_iris' && analysisResult.iris_analysis && (
                                 <div className="space-y-4">
@@ -891,148 +1009,6 @@ export default function EyeAnalysisTab({ session }) {
                         </div>
                     )}
                 </div>
-            </div>
-
-            {/* Separate Tabular Diabetes Screening Section (Pima Indians Diabetes Database) */}
-            <div className="rounded-2xl p-5 bg-slate-900/80 border border-slate-800 shadow-xl space-y-4">
-                <div className="flex flex-wrap justify-between items-center gap-2 border-b border-slate-800 pb-3">
-                    <div>
-                        <h3 className="text-sm font-bold text-purple-300 flex items-center gap-2">
-                            <Calculator className="w-4 h-4" /> Separate Tabular Clinical Diabetes Risk Screening (Pima Indians Diabetes Model)
-                        </h3>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                            Trained strictly on 768 clinical tabular records (ROC-AUC: {moduleStatus?.tabular_diabetes_evaluation?.test_metrics?.roc_auc ?? '0.8126'}), completely separate from image analysis.
-                        </p>
-                    </div>
-                    <span className="text-[10px] font-mono px-2.5 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30">
-                        Tabular Clinical Data Only
-                    </span>
-                </div>
-
-                <form onSubmit={handleRunPimaRisk} className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 text-xs">
-                    {[
-                        ['pregnancies', 'Pregnancies'],
-                        ['glucose', 'Glucose (mg/dL)'],
-                        ['bloodPressure', 'Diastolic BP'],
-                        ['skinThickness', 'Skin Fold (mm)'],
-                        ['insulin', 'Insulin (mu U/ml)'],
-                        ['bmi', 'BMI'],
-                        ['dpf', 'Pedigree Func'],
-                        ['age', 'Age (yrs)'],
-                    ].map(([key, label]) => (
-                        <div key={key}>
-                            <label className="block text-[10px] text-slate-400 mb-1">{label}</label>
-                            <input
-                                type="number"
-                                step={key === 'bmi' || key === 'dpf' ? '0.01' : '1'}
-                                value={pimaInputs[key]}
-                                onChange={(e) => setPimaInputs((prev) => ({ ...prev, [key]: Number(e.target.value) }))}
-                                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-purple-500"
-                            />
-                        </div>
-                    ))}
-                    <div className="col-span-2 sm:col-span-4 lg:col-span-8 flex flex-wrap items-center justify-between gap-3 pt-1">
-                        <button
-                            type="submit"
-                            disabled={isRunningPima}
-                            className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs flex items-center gap-2 transition-all disabled:opacity-50"
-                        >
-                            {isRunningPima ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Calculator className="w-3.5 h-3.5" />}
-                            <span>Predict Tabular Diabetes Risk</span>
-                        </button>
-
-                        {pimaResult && (
-                            <div className="flex flex-wrap items-center gap-3 bg-slate-950/90 border border-purple-500/30 px-4 py-2 rounded-xl text-xs">
-                                <span className="font-bold text-purple-200">{pimaResult.prediction_label}</span>
-                                <span className="font-mono text-purple-300">
-                                    Probability: {pimaResult.probability_pct}% ({pimaResult.risk_tier} Tier)
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                </form>
-            </div>
-
-            {/* Prediction History Section (SQLite Backed) */}
-            <div className="rounded-2xl p-5 bg-slate-900/80 border border-slate-800 shadow-xl space-y-4">
-                <div className="flex flex-wrap justify-between items-center gap-2 border-b border-slate-800 pb-3">
-                    <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                        <History className="w-4 h-4 text-sky-400" /> Eye Analysis Prediction History (SQLite Database)
-                    </h3>
-                    {historyItems.length > 0 && (
-                        <button
-                            type="button"
-                            onClick={handleClearHistory}
-                            className="px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-rose-950/50 border border-slate-700 hover:border-rose-500/40 text-[11px] text-rose-300 flex items-center gap-1 transition-all"
-                        >
-                            <Trash2 className="w-3 h-3" /> Clear History
-                        </button>
-                    )}
-                </div>
-
-                {historyItems.length === 0 ? (
-                    <div className="text-xs text-slate-500 py-4 text-center">
-                        No eye image analyses recorded yet. Upload and analyse an image to store its prediction in SQLite.
-                    </div>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs">
-                            <thead className="text-[10px] uppercase font-mono text-slate-400 border-b border-slate-800">
-                                <tr>
-                                    <th className="py-2 pr-3">Time</th>
-                                    <th className="py-2 pr-3">File</th>
-                                    <th className="py-2 pr-3">Modality</th>
-                                    <th className="py-2 pr-3">Quality</th>
-                                    <th className="py-2 pr-3">Prediction</th>
-                                    <th className="py-2 pr-3">Confidence</th>
-                                    <th className="py-2 text-right">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-800/70">
-                                {historyItems.map((item) => (
-                                    <tr key={item.id} className="hover:bg-slate-950/50">
-                                        <td className="py-2 pr-3 font-mono text-[11px] text-slate-400 whitespace-nowrap">
-                                            {new Date(item.created_at).toLocaleString()}
-                                        </td>
-                                        <td className="py-2 pr-3 font-mono text-slate-200 max-w-[180px] truncate">
-                                            {item.filename}
-                                        </td>
-                                        <td className="py-2 pr-3 font-mono text-[11px] text-sky-300">
-                                            {item.detected_modality}
-                                        </td>
-                                        <td className="py-2 pr-3">
-                                            <span
-                                                className={`text-[10px] px-2 py-0.5 rounded font-mono ${
-                                                    item.quality_status === 'acceptable'
-                                                        ? 'bg-emerald-500/15 text-emerald-300'
-                                                        : 'bg-rose-500/15 text-rose-300'
-                                                }`}
-                                            >
-                                                {item.quality_status} ({item.quality_score})
-                                            </span>
-                                        </td>
-                                        <td className="py-2 pr-3 text-slate-200 font-medium">
-                                            {item.prediction_label}
-                                        </td>
-                                        <td className="py-2 pr-3 font-mono text-sky-300">
-                                            {item.confidence_pct}%
-                                        </td>
-                                        <td className="py-2 text-right">
-                                            <button
-                                                type="button"
-                                                onClick={() => handleDeleteHistory(item.id)}
-                                                className="text-slate-500 hover:text-rose-400 p-1 rounded"
-                                                title="Delete entry"
-                                            >
-                                                <Trash2 className="w-3.5 h-3.5" />
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
             </div>
         </div>
     );

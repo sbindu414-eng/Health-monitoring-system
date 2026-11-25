@@ -71,12 +71,31 @@ def decode_and_validate_upload(
 
 def assess_image_quality(rgb_np: np.ndarray, is_fundus_like: bool = False) -> Dict:
     """
-    Evaluate focus sharpness, luminance exposure, dynamic contrast, and glare.
+    Evaluate focus sharpness (resolution-normalized), luminance exposure, dynamic contrast, glare, and FOV completeness.
 
     For retinal fundus images, pure black framing borders around the circular FOV
-    are masked out so borders do not penalize brightness/exposure measurements.
+    are cropped/masked before evaluation, and multi-megapixel inputs are normalized
+    to a 256px reference scale before Laplacian sharpness so crisp 4K clinical photos
+    are not falsely flagged as blurry.
     """
-    bgr = cv2.cvtColor(rgb_np, cv2.COLOR_RGB2BGR)
+    if is_fundus_like:
+        eval_rgb = crop_black_borders(rgb_np)
+    else:
+        eval_rgb = rgb_np
+
+    eh, ew = eval_rgb.shape[:2]
+    max_side = max(eh, ew)
+    if max_side > 256:
+        scale = 256.0 / float(max_side)
+        norm_rgb = cv2.resize(
+            eval_rgb,
+            (max(32, int(round(ew * scale))), max(32, int(round(eh * scale)))),
+            interpolation=cv2.INTER_AREA,
+        )
+    else:
+        norm_rgb = eval_rgb
+
+    bgr = cv2.cvtColor(norm_rgb, cv2.COLOR_RGB2BGR)
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
 
     # Mask black fundus padding if evaluating fundus FOV interior
@@ -84,17 +103,20 @@ def assess_image_quality(rgb_np: np.ndarray, is_fundus_like: bool = False) -> Di
     active_ratio = float(np.mean(non_black_mask))
     if is_fundus_like and active_ratio > 0.15:
         active_pixels = gray[non_black_mask]
+        lap_map = cv2.Laplacian(gray, cv2.CV_64F)
+        sharpness_raw = float(lap_map[non_black_mask].var())
     else:
         active_pixels = gray.reshape(-1)
+        sharpness_raw = float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
-    sharpness_raw = float(cv2.Laplacian(gray, cv2.CV_64F).var())
     brightness = float(np.mean(active_pixels))
     contrast = float(np.std(active_pixels))
     dark_ratio = float(np.mean(active_pixels < 18))
     bright_glare_ratio = float(np.mean(active_pixels > 245))
 
     reasons = []
-    # Low-resolution 224x224 clinical fundus images can naturally have smoother gradients than 4K camera shots
+    if is_fundus_like and active_ratio < 0.22:
+        reasons.append(f"Incomplete or severely occluded retinal field of view (active area={active_ratio * 100:.1f}% < 22%).")
     min_sharpness = 8.0 if is_fundus_like else 18.0
     if sharpness_raw < min_sharpness:
         reasons.append(f"Image appears overly blurry or lacks edge detail (Laplacian variance={sharpness_raw:.1f} < {min_sharpness}).")
@@ -364,35 +386,50 @@ def crop_black_borders(rgb_np: np.ndarray, tol: int = 10) -> np.ndarray:
     return cropped if min(cropped.shape[:2]) >= 32 else rgb_np
 
 
+def pad_to_square(rgb_np: np.ndarray) -> np.ndarray:
+    """Pad an RGB fundus image equally to a square using black margins so aspect ratio is preserved."""
+    h, w = rgb_np.shape[:2]
+    if h == w:
+        return rgb_np
+    side = max(h, w)
+    top = (side - h) // 2
+    bottom = side - h - top
+    left = (side - w) // 2
+    right = side - w - left
+    return cv2.copyMakeBorder(rgb_np, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+
+
 def preprocess_fundus_rgb(rgb_np: np.ndarray, target_size: int = 224, apply_clahe: bool = True) -> Image.Image:
     """
     Standardized clinical preprocessing for retinal fundus images:
-    1. Trim dead black camera margin
-    2. Optional gentle CLAHE contrast equalization on LAB luminance channel
-    3. Resize with bicubic interpolation to model input dimensions
+    1. Trim dead black outer camera margins
+    2. Aspect-ratio-preserving square pad so optic disc & vessel geometry are never stretched
+    3. Optional gentle CLAHE contrast equalization on LAB luminance channel
+    4. Resize with bicubic interpolation to model input dimensions
     """
     cropped = crop_black_borders(rgb_np)
+    squared = pad_to_square(cropped)
     if apply_clahe:
-        lab = cv2.cvtColor(cropped, cv2.COLOR_RGB2LAB)
+        lab = cv2.cvtColor(squared, cv2.COLOR_RGB2LAB)
         l_chan, a_chan, b_chan = cv2.split(lab)
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         l_eq = clahe.apply(l_chan)
         merged = cv2.merge((l_eq, a_chan, b_chan))
         enhanced = cv2.cvtColor(merged, cv2.COLOR_LAB2RGB)
     else:
-        enhanced = cropped
+        enhanced = squared
 
     pil_out = Image.fromarray(enhanced).resize((target_size, target_size), Image.Resampling.BICUBIC)
     return pil_out
 
 
 def get_train_transforms(image_size: int = 224) -> transforms.Compose:
-    """Training-only augmentation + normalization pipeline (never applied to val/test)."""
+    """Training-only lesion-preserving augmentation + normalization pipeline (never applied to val/test)."""
     return transforms.Compose([
+        transforms.RandomResizedCrop(image_size, scale=(0.86, 1.0), ratio=(0.94, 1.06)),
         transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomVerticalFlip(p=0.5),
-        transforms.RandomRotation(degrees=20),
-        transforms.ColorJitter(brightness=0.12, contrast=0.12, saturation=0.10, hue=0.02),
+        transforms.RandomRotation(degrees=15),
+        transforms.ColorJitter(brightness=0.12, contrast=0.12, saturation=0.08, hue=0.015),
         transforms.ToTensor(),
         transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
     ])
@@ -413,15 +450,16 @@ def get_preprocessing_config(image_size: int = 224, apply_clahe: bool = True) ->
         "image_size": image_size,
         "color_space": "RGB",
         "crop_black_borders": True,
+        "pad_to_square": True,
         "apply_clahe": apply_clahe,
         "clahe_clip_limit": 2.0,
         "clahe_tile_grid_size": [8, 8],
         "normalization_mean": IMAGENET_MEAN,
         "normalization_std": IMAGENET_STD,
         "train_augmentations": [
+            "RandomResizedCrop(scale=(0.86, 1.0), ratio=(0.94, 1.06))",
             "RandomHorizontalFlip(p=0.5)",
-            "RandomVerticalFlip(p=0.5)",
-            "RandomRotation(degrees=20)",
-            "ColorJitter(brightness=0.12, contrast=0.12, saturation=0.10, hue=0.02)",
+            "RandomRotation(degrees=15)",
+            "ColorJitter(brightness=0.12, contrast=0.12, saturation=0.08, hue=0.015)",
         ],
     }

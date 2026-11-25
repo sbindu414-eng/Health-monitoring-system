@@ -26,8 +26,8 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 from backend.database import delete_eye_prediction, get_eye_history, init_db, save_eye_prediction
-from src.eye_analysis.predict import analyze_uploaded_eye_image, predict_tabular_diabetes
-from src.eye_analysis.preprocessing import decode_and_validate_upload
+from src.eye_analysis.predict import _assess_uncertainty, analyze_uploaded_eye_image, predict_tabular_diabetes
+from src.eye_analysis.preprocessing import assess_image_quality, decode_and_validate_upload
 
 
 def _img_bytes(rgb_np: np.ndarray, fmt: str = "PNG") -> bytes:
@@ -105,10 +105,15 @@ class TestEyeAnalysisModule(unittest.TestCase):
         res0 = analyze_uploaded_eye_image(b0, os.path.basename(healthy_path), analysis_mode="auto")
         self.assertEqual(res0["detected_modality"], "retinal_fundus")
         self.assertEqual(res0["status"], "completed")
-        self.assertIn("Predicted diabetic retinopathy severity:", res0["prediction_label"])
+        self.assertIn("severity_label", res0)
         self.assertFalse(res0["diabetes_detected"])
         self.assertEqual(len(res0["class_probabilities"]), 5)
         self.assertIn("Blood glucose cannot be measured", res0["glucose_statement"])
+        self.assertIn("uncertainty", res0)
+        self.assertIn("normalized_entropy", res0["uncertainty"])
+        self.assertTrue(res0["gradcam"]["available"])
+        self.assertTrue(res0["gradcam_overlay_image"].startswith("data:image/png;base64,"))
+        self.assertIn("ICDR", res0["clinical_report"]["reference_standard"])
 
         # Diabetic Grade 4 held-out retinal fundus MUST be detected as diabetic retinopathy
         dr_path = os.path.join(ROOT_DIR, "data", "samples", "sample_test_grade4_proliferative_diabetic_retinopathy.png")
@@ -120,6 +125,8 @@ class TestEyeAnalysisModule(unittest.TestCase):
         self.assertEqual(res4["status"], "completed")
         self.assertTrue(res4["diabetes_detected"])
         self.assertGreaterEqual(res4["predicted_grade"], 1)
+        self.assertTrue(res4["gradcam"]["available"])
+        self.assertTrue(res4["gradcam_overlay_image"].startswith("data:image/png;base64,"))
 
     def test_tabular_pima_prediction(self):
         res = predict_tabular_diabetes({
@@ -161,6 +168,44 @@ class TestEyeAnalysisModule(unittest.TestCase):
             self.assertEqual(hist[0]["id"], row_id)
             self.assertTrue(delete_eye_prediction(row_id, db_path=db_file))
             self.assertEqual(len(get_eye_history(limit=10, db_path=db_file)), 0)
+
+    def test_poor_lighting_and_uncertain_probabilities(self):
+        # Severely underexposed black/dark frame must be rejected cleanly
+        dark_img = np.full((240, 240, 3), 8, dtype=np.uint8)
+        res_dark = analyze_uploaded_eye_image(_img_bytes(dark_img), "dark_scan.png", analysis_mode="retinal_fundus")
+        self.assertEqual(res_dark["status"], "rejected_quality")
+        self.assertFalse(res_dark["quality"]["is_acceptable"])
+
+        # Uncertainty logic must flag flat ambiguous class distributions and pass clear predictions
+        unc = _assess_uncertainty(np.array([0.22, 0.21, 0.20, 0.19, 0.18]), quality_score=85.0)
+        self.assertTrue(unc["is_uncertain"])
+        self.assertGreater(unc["normalized_entropy"], 0.80)
+
+        cert = _assess_uncertainty(np.array([0.88, 0.06, 0.03, 0.02, 0.01]), quality_score=85.0)
+        self.assertFalse(cert["is_uncertain"])
+
+    def test_highres_clinical_camera_quality_acceptance(self):
+        # High-resolution clinical camera photo (e.g. 1600x1200 with black border + crisp circular fundus + fine spots)
+        canvas = np.zeros((1200, 1600, 3), dtype=np.uint8)
+        yy, xx = np.ogrid[:1200, :1600]
+        dist = np.sqrt((xx - 800) ** 2 + (yy - 600) ** 2)
+        fov = dist <= 520
+        canvas[fov] = [185, 92, 48]
+        # Crisp bright optic disc + simulated fine vessel edges & spots
+        cv2.circle(canvas, (980, 580), 65, (235, 195, 130), -1)
+        cv2.line(canvas, (980, 580), (620, 420), (110, 38, 22), 5)
+        cv2.line(canvas, (980, 580), (640, 790), (110, 38, 22), 5)
+        q = assess_image_quality(canvas, is_fundus_like=True)
+        self.assertTrue(q["is_acceptable"], f"High-res fundus unexpectedly rejected: {q}")
+
+    def test_evaluation_report_qwk_and_external_schema(self):
+        import json
+        report_path = os.path.join(ROOT_DIR, "models", "evaluation_report.json")
+        self.assertTrue(os.path.exists(report_path), "evaluation_report.json missing")
+        with open(report_path, "r", encoding="utf-8") as f:
+            rep = json.load(f)
+        self.assertIn("quadratic_weighted_kappa", rep.get("overall_metrics", {}))
+        self.assertIn("confusion_matrix", rep)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
   "image_size": 224,
   "color_space": "RGB",
   "crop_black_borders": true,
+  "pad_to_square": true,
   "apply_clahe": true,
   "clahe_clip_limit": 2.0,
   "clahe_tile_grid_size": [
@@ -19,12 +20,13 @@
     0.225
   ],
   "train_augmentations": [
+    "RandomResizedCrop(scale=(0.86, 1.0), ratio=(0.94, 1.06))",
     "RandomHorizontalFlip(p=0.5)",
-    "RandomVerticalFlip(p=0.5)",
-    "RandomRotation(degrees=20)",
-    "ColorJitter(brightness=0.12, contrast=0.12, saturation=0.10, hue=0.02)"
+    "RandomRotation(degrees=15)",
+    "ColorJitter(brightness=0.12, contrast=0.12, saturation=0.08, hue=0.015)"
   ],
+  "model_version": "2.0.0-multicenter",
   "backbone_architecture": "efficientnet_b0",
-  "any_dr_threshold": 0.68,
+  "any_dr_threshold": 0.73,
   "use_tta": true
 }

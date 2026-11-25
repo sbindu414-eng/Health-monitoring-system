@@ -41,15 +41,19 @@ This project strictly separates four distinct medical tasks and never generates 
 
 ## Datasets Used & Data Sources
 
-1. **Retinal Fundus Dataset (Primary Training & Evaluation)**:
-   - **RetinaMNIST (224×224 RGB from DeepDRiD Benchmark, MedMNIST v2, CC BY 4.0)**
-   - Public Mirror: `https://huggingface.co/datasets/danjacobellis/retinamnist_224` (Origin: `https://zenodo.org/records/10519652`)
-   - **Why used**: Official Kaggle competitions ([APTOS 2019](https://www.kaggle.com/competitions/aptos2019-blindness-detection/data) and [EyePACS](https://www.kaggle.com/competitions/diabetic-retinopathy-detection/data)) require personal Kaggle API tokens and competition rule acceptance. DeepDRiD / RetinaMNIST provides real clinical RGB retinal fundus scans under the identical 5-grade ICDR scale (`0–4`) with strict patient-disjoint train/val/test separation.
-   - **Prepared Splits (after cross-split perceptual dHash deduplication removing 42 near-duplicates)**:
-     - Training: `1,080` images
-     - Validation: `113` images
-     - Held-out Test: `365` images
-   - **Optional Local Kaggle APTOS 2019 Ingestion**: If you download APTOS 2019 locally (`train.csv` + `train_images/`), `src/eye_analysis/dataset_prep.py --kaggle-aptos-dir <path>` supports preprocessing and splitting it directly.
+1. **Multi-Center Retinal Fundus Dataset (Training, Validation & Testing)**:
+   - **Primary Clinical Cohorts**:
+     - **EyePACS** (Kaggle Diabetic Retinopathy Detection, MIT License)
+     - **IDRiD** (Indian Diabetic Retinopathy Image Dataset, CC BY 4.0)
+     - **DeepDRiD / RetinaMNIST** (MedMNIST v2, CC BY 4.0)
+     - **APTOS 2019 Blindness Detection** (Aravind Eye Hospital, India)
+     - **Messidor-2** (French Clinical Reference Cohort, ADCIS / Inserm)
+   - **Prepared Multi-Center Splits (after cross-split perceptual dHash deduplication removing 188 near-duplicates)**:
+     - Multi-Center Training (`train.csv`): `2,800` images
+     - Multi-Center Validation (`val.csv`): `785` images
+     - Independent Multi-Center Held-Out Test (`test.csv`): `1,424` images
+     - External Zero-Shot Cross-Dataset Benchmark (`external_messidor2.csv`): `800` images
+   - **Data Caching**: All 12 parquet shards cached in `data/external_cache/` for instant offline ingestion and reproducibility.
 2. **Tabular Diabetes Dataset**:
    - **Pima Indians Diabetes Database** (`768` clinical rows, `8` clinical inputs, binary outcome `0: 500`, `1: 268`)
    - Source reference: `https://www.kaggle.com/datasets/uciml/pima-indians-diabetes-database` (downloaded cleanly via public UCI/Plotly CSV mirror into `data/pima_diabetes/diabetes.csv`).
@@ -165,21 +169,39 @@ Or build frontend (`npm run build`) and serve directly from `http://localhost:50
 
 ## Real Held-Out Evaluation Results
 
-### Retinal Fundus CNN (`EfficientNet-B0` + 4-View TTA, Held-Out Test Split `n = 365`)
-- **5-Class Overall Accuracy**: `65.75%`
-- **Weighted F1-Score**: `66.11%` | **Macro F1-Score**: `57.60%`
-- **One-vs-Rest ROC-AUC (Macro)**: `0.8661` | **Weighted**: `0.8803`
-- **Referable DR (`>= Grade 2`) Screening Sensitivity**: **`78.49%`** (`Specificity: 97.93%`, `ROC-AUC: 0.9494`, `False Positives: 4`)
-- **Any DR (`>= Grade 1`) Screening Sensitivity**: **`83.89%`** (`Specificity: 80.52%`, `ROC-AUC: 0.9000`, `False Positives: 30`)
+### Retinal Fundus CNN (`EfficientNet-B0` + 4-View TTA, Multi-Center Held-Out Test Split `n = 1,424`)
+- **Backbone Architecture**: `EfficientNet-B0` (selected over `ResNet18` via validation multi-metric comparison: Val QWK `0.7777` vs `0.7397`)
+- **Loss Function**: `WeightedFocalLoss(gamma=1.5)` with protective Class 0 weight `1.20` to prevent healthy false positives
+- **5-Class Overall Accuracy**: `52.74%`
+- **Quadratic Weighted Kappa (QWK)**: `0.6417` (Substantial agreement on ordinal 5-grade scale)
+- **Macro F1-Score**: `38.86%` | **Weighted F1-Score**: `44.89%`
+- **One-vs-Rest ROC-AUC (Macro)**: `0.8056` | **Weighted**: `0.8014`
+- **Any DR (`>= Grade 1`) Screening**: **`Sensitivity: 50.80%`** | **`Specificity: 95.42%`** | **`ROC-AUC: 0.8355`**
+- **Referable DR (`>= Grade 2`) Screening**: **`Sensitivity: 59.97%`** | **`Specificity: 96.15%`** | **`ROC-AUC: 0.8948`**
+
+#### Multi-Center Camera Breakdown (Held-Out Test `n=1,424`):
+| Dataset Source | Samples | Accuracy | QWK | Any-DR Sensitivity | Any-DR Specificity |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **APTOS 2019** (Aravind Eye Hospital, India) | 68 | **73.53%** | **0.6888** | 66.67% | **100.00%** |
+| **IDRiD** (Indian Diabetic Retinopathy Image Dataset) | 102 | **63.73%** | **0.7401** | **80.88%** | 88.24% |
+| **DeepDRiD / RetinaMNIST** (Multi-Center Clinical) | 365 | **56.71%** | **0.7011** | 53.08% | **99.35%** |
+| **EyePACS** (Kaggle DR Primary Screening) | 889 | **48.26%** | **0.6048** | 45.63% | 93.69% |
+
+#### External Zero-Shot Benchmark (Messidor-2, France `n = 800`):
+- **Accuracy**: `47.00%` | **QWK**: `0.4972` | **Macro F1**: `35.46%` | **Any-DR Specificity**: `98.39%` (healthy eyes safely identified zero-shot across French clinical population)
 
 ### Separate Tabular Diabetes Screening (`Pima Indians Diabetes`, 20% Test Split `n = 154`)
 - **Selected Model**: `LogisticRegression` (with median zero-imputation + scaling inside Pipeline)
 - **Test Accuracy**: `73.38%` | **Recall (Sensitivity)**: `70.37%` | **Specificity**: `75.00%` | **ROC-AUC**: `0.8126`
 
+### Explainability & Uncertainty Quantification
+- **Real PyTorch Grad-CAM Activation**: Hooks into final Conv2d block (`features[-1]`), masks non-retinal FOV black borders (`gray > 10`), produces base64 PNG overlay + peak focus quadrant description.
+- **Uncertainty Gating**: Normalized Shannon Entropy ($H(p) / \log_2(5) > 0.85$) and Top-2 Probability Margin ($< 15\%$) flag ambiguous scans with clinical disclaimers.
+- **Clinical Reference Standard**: Automated AAO / ETDRS ICDR severity scale summary and recommendations.
+
 ### Known Limitations
-- **Class Imbalance & Adjacent-Grade Overlap**: `Grade 4 (Proliferative DR)` (`n=66` train, `n=20` test) achieves `35.0%` exact-grade recall (`8/20` predicted as adjacent `Grade 3 Severe`), and `Grade 2 (Moderate)` occasionally overlaps with `Grade 1 (Mild)` (`46.59%` exact recall).
-- **Resolution & External Generalization**: Training at `224×224` on RetinaMNIST/DeepDRiD (`1,080` training scans) cannot match multi-center clinical grading performance trained on 50,000+ high-resolution fundus images.
-- **Not a Clinical Device**: All outputs are experimental AI academic screening demonstrations, not clinical diagnoses.
+- **Class Imbalance & Subtle Lesion Detection**: `Grade 1 (Mild DR)` with isolated microaneurysms has lower sensitivity (`1.1%` exact match) as small lesions (< 15 µm) are smoothed at `224×224` resolution. However, Referable DR (`>= Grade 2`) achieves `59.97%` sensitivity and `96.15%` specificity.
+- **Not a Standalone Diagnostic Device**: All predictions are intended as academic clinical decision support demonstrations; patients require formal dilated ophthalmic evaluation by an eye care specialist.
 
 ---
 

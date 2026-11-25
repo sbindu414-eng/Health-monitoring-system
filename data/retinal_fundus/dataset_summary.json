@@ -1,50 +1,73 @@
 {
-  "dataset": "RetinaMNIST (224x224 RGB from DeepDRiD Benchmark, MedMNIST v2)",
-  "license": "CC BY 4.0",
-  "source_url": "https://huggingface.co/datasets/danjacobellis/retinamnist_224",
-  "origin_zenodo": "https://zenodo.org/records/10519652",
-  "kaggle_references": [
-    "https://www.kaggle.com/competitions/aptos2019-blindness-detection/data",
-    "https://www.kaggle.com/competitions/diabetic-retinopathy-detection/data"
-  ],
-  "note": "Kaggle APTOS 2019 & EyePACS require authenticated Kaggle API tokens and competition acceptance. DeepDRiD/RetinaMNIST provides real clinical 224x224 fundus photographs under the exact same 5-grade ICDR diabetic retinopathy scale with strict patient-level train/val/test separation.",
+  "dataset": "Multi-Center Retinal Fundus Benchmark (EyePACS + IDRiD + DeepDRiD/RetinaMNIST + APTOS 2019)",
+  "external_cross_validation_dataset": "Messidor-2 (zero-shot held-out external benchmark)",
+  "sources": {
+    "DeepDRiD / RetinaMNIST": "https://huggingface.co/datasets/danjacobellis/retinamnist_224 (CC BY 4.0)",
+    "EyePACS (Kaggle DR)": "https://huggingface.co/datasets/youssefedweqd/Diabetic_Retinopathy_Detection (MIT)",
+    "IDRiD": "https://huggingface.co/datasets/amin-nejad/idrid-disease-grading (CC BY 4.0)",
+    "APTOS 2019": "https://huggingface.co/datasets/sngsfydy/aptos & aptos_test",
+    "Messidor-2": "https://huggingface.co/datasets/sngsfydy/Messidor2"
+  },
   "splits": {
-    "train": 1080,
-    "val": 113,
-    "test": 365
+    "train": 2800,
+    "val": 785,
+    "test": 1424,
+    "external_messidor2": 800
   },
-  "total_images": 1558,
   "corrupted_rejected": 0,
-  "exact_duplicates_removed": 0,
-  "cross_split_near_duplicates_removed": 42,
-  "class_names": {
-    "0": "No diabetic retinopathy",
-    "1": "Mild",
-    "2": "Moderate",
-    "3": "Severe",
-    "4": "Proliferative diabetic retinopathy"
-  },
+  "exact_duplicates_removed": 36,
+  "cross_split_near_duplicates_removed": 188,
   "class_distribution": {
     "train": {
-      "No diabetic retinopathy": 486,
-      "Proliferative diabetic retinopathy": 66,
-      "Severe": 194,
-      "Moderate": 206,
-      "Mild": 128
+      "Mild": 500,
+      "No diabetic retinopathy": 800,
+      "Severe": 450,
+      "Moderate": 650,
+      "Proliferative diabetic retinopathy": 400
     },
     "val": {
-      "No diabetic retinopathy": 51,
-      "Moderate": 25,
-      "Mild": 12,
-      "Severe": 19,
-      "Proliferative diabetic retinopathy": 6
+      "No diabetic retinopathy": 295,
+      "Moderate": 195,
+      "Mild": 129,
+      "Severe": 96,
+      "Proliferative diabetic retinopathy": 70
     },
     "test": {
-      "Moderate": 88,
-      "Mild": 39,
-      "No diabetic retinopathy": 154,
-      "Severe": 64,
-      "Proliferative diabetic retinopathy": 20
+      "Moderate": 331,
+      "Mild": 181,
+      "No diabetic retinopathy": 546,
+      "Severe": 209,
+      "Proliferative diabetic retinopathy": 157
+    },
+    "external_messidor2": {
+      "Severe": 74,
+      "Moderate": 200,
+      "No diabetic retinopathy": 311,
+      "Mild": 180,
+      "Proliferative diabetic retinopathy": 35
+    }
+  },
+  "source_breakdown": {
+    "train": {
+      "deepdrid_retinamnist": 489,
+      "eyepacs": 1623,
+      "idrid": 346,
+      "aptos2019": 342
+    },
+    "val": {
+      "deepdrid_retinamnist": 113,
+      "eyepacs": 567,
+      "aptos2019": 45,
+      "idrid": 60
+    },
+    "test": {
+      "deepdrid_retinamnist": 365,
+      "idrid": 102,
+      "eyepacs": 889,
+      "aptos2019": 68
+    },
+    "external_messidor2": {
+      "messidor2": 800
     }
   }
 }

@@ -1,121 +1,278 @@
 {
-  "evaluated_at": "2026-11-25 20:37:20",
+  "evaluated_at": "2026-11-26 01:12:02",
+  "model_version": "2.0.0-multicenter",
   "backbone_architecture": "efficientnet_b0",
-  "best_epoch": 7,
-  "any_dr_threshold": 0.68,
+  "best_epoch": 4,
+  "any_dr_threshold": 0.73,
   "test_time_augmentation": true,
-  "test_samples": 365,
+  "test_samples": 1424,
   "overall_metrics": {
-    "accuracy": 0.6575,
-    "precision_macro": 0.6001,
-    "precision_weighted": 0.6839,
-    "recall_macro": 0.5788,
-    "recall_weighted": 0.6575,
-    "f1_macro": 0.576,
-    "f1_weighted": 0.6611,
-    "roc_auc_ovr_macro": 0.8661,
-    "roc_auc_ovr_weighted": 0.8803
+    "accuracy": 0.5274,
+    "precision_macro": 0.4335,
+    "precision_weighted": 0.4702,
+    "recall_macro": 0.4201,
+    "recall_weighted": 0.5274,
+    "f1_macro": 0.3886,
+    "f1_weighted": 0.4489,
+    "quadratic_weighted_kappa": 0.6417,
+    "roc_auc_ovr_macro": 0.8056,
+    "roc_auc_ovr_weighted": 0.8014
   },
   "screening_sensitivity_analysis": {
     "any_dr_detection": {
-      "sensitivity_recall": 0.8389,
-      "specificity": 0.8052,
-      "false_negatives": 34,
-      "false_positives": 30,
-      "roc_auc": 0.9
+      "sensitivity_recall": 0.508,
+      "specificity": 0.9542,
+      "false_negatives": 432,
+      "false_positives": 25,
+      "roc_auc": 0.8355
     },
     "referable_dr_detection_grade_2plus": {
-      "sensitivity_recall": 0.7849,
-      "specificity": 0.9793,
-      "false_negatives": 37,
-      "false_positives": 4,
-      "roc_auc": 0.9494
+      "sensitivity_recall": 0.5997,
+      "specificity": 0.9615,
+      "false_negatives": 279,
+      "false_positives": 28,
+      "roc_auc": 0.8948
+    }
+  },
+  "per_source_metrics": {
+    "aptos2019": {
+      "samples": 68,
+      "accuracy": 0.7353,
+      "qwk": 0.6888,
+      "any_dr_sensitivity": 0.6667,
+      "any_dr_specificity": 1.0
+    },
+    "deepdrid_retinamnist": {
+      "samples": 365,
+      "accuracy": 0.5671,
+      "qwk": 0.7011,
+      "any_dr_sensitivity": 0.5308,
+      "any_dr_specificity": 0.9935
+    },
+    "eyepacs": {
+      "samples": 889,
+      "accuracy": 0.4826,
+      "qwk": 0.6048,
+      "any_dr_sensitivity": 0.4563,
+      "any_dr_specificity": 0.9369
+    },
+    "idrid": {
+      "samples": 102,
+      "accuracy": 0.6373,
+      "qwk": 0.7401,
+      "any_dr_sensitivity": 0.8088,
+      "any_dr_specificity": 0.8824
     }
   },
   "per_class_metrics": {
     "No diabetic retinopathy": {
       "grade": 0,
-      "support": 154,
-      "precision": 0.7848,
-      "recall_sensitivity": 0.8052,
-      "specificity": 0.8389,
-      "f1_score": 0.7949,
-      "false_negatives": 30
+      "support": 546,
+      "precision": 0.5467,
+      "recall_sensitivity": 0.9542,
+      "specificity": 0.508,
+      "f1_score": 0.6951,
+      "false_negatives": 25
     },
     "Mild": {
       "grade": 1,
-      "support": 39,
-      "precision": 0.3088,
-      "recall_sensitivity": 0.5385,
-      "specificity": 0.8558,
-      "f1_score": 0.3925,
-      "false_negatives": 18
+      "support": 181,
+      "precision": 0.08,
+      "recall_sensitivity": 0.011,
+      "specificity": 0.9815,
+      "f1_score": 0.0194,
+      "false_negatives": 179
     },
     "Moderate": {
       "grade": 2,
-      "support": 88,
-      "precision": 0.6949,
-      "recall_sensitivity": 0.4659,
-      "specificity": 0.935,
-      "f1_score": 0.5578,
-      "false_negatives": 47
+      "support": 331,
+      "precision": 0.5114,
+      "recall_sensitivity": 0.136,
+      "specificity": 0.9607,
+      "f1_score": 0.2148,
+      "false_negatives": 286
     },
     "Severe": {
       "grade": 3,
-      "support": 64,
-      "precision": 0.7121,
-      "recall_sensitivity": 0.7344,
-      "specificity": 0.9369,
-      "f1_score": 0.7231,
-      "false_negatives": 17
+      "support": 209,
+      "precision": 0.4953,
+      "recall_sensitivity": 0.5024,
+      "specificity": 0.9119,
+      "f1_score": 0.4988,
+      "false_negatives": 104
     },
     "Proliferative diabetic retinopathy": {
       "grade": 4,
-      "support": 20,
-      "precision": 0.5,
-      "recall_sensitivity": 0.35,
-      "specificity": 0.9797,
-      "f1_score": 0.4118,
-      "false_negatives": 13
+      "support": 157,
+      "precision": 0.5342,
+      "recall_sensitivity": 0.4968,
+      "specificity": 0.9463,
+      "f1_score": 0.5149,
+      "false_negatives": 79
     }
   },
   "confusion_matrix": [
     [
-      124,
-      26,
+      521,
+      6,
+      9,
+      2,
+      8
+    ],
+    [
+      170,
+      2,
       4,
-      0,
-      0
-    ],
-    [
-      18,
-      21,
-      0,
-      0,
-      0
-    ],
-    [
-      12,
-      20,
-      41,
-      11,
-      4
-    ],
-    [
-      2,
-      1,
-      11,
-      47,
-      3
-    ],
-    [
-      2,
-      0,
       3,
-      8,
-      7
+      2
+    ],
+    [
+      195,
+      12,
+      45,
+      59,
+      20
+    ],
+    [
+      41,
+      5,
+      20,
+      105,
+      38
+    ],
+    [
+      26,
+      0,
+      10,
+      43,
+      78
     ]
   ],
-  "classification_report_text": "                                    precision    recall  f1-score   support\n\n           No diabetic retinopathy       0.78      0.81      0.79       154\n                              Mild       0.31      0.54      0.39        39\n                          Moderate       0.69      0.47      0.56        88\n                            Severe       0.71      0.73      0.72        64\nProliferative diabetic retinopathy       0.50      0.35      0.41        20\n\n                          accuracy                           0.66       365\n                         macro avg       0.60      0.58      0.58       365\n                      weighted avg       0.68      0.66      0.66       365\n",
-  "limitations": "Evaluated strictly on internal held-out test images (DeepDRiD / RetinaMNIST, n=365 after cross-split deduplication). Internal benchmark accuracy must NOT be interpreted as multi-site prospective clinical validation."
+  "classification_report_text": "                                    precision    recall  f1-score   support\n\n           No diabetic retinopathy       0.55      0.95      0.70       546\n                              Mild       0.08      0.01      0.02       181\n                          Moderate       0.51      0.14      0.21       331\n                            Severe       0.50      0.50      0.50       209\nProliferative diabetic retinopathy       0.53      0.50      0.51       157\n\n                          accuracy                           0.53      1424\n                         macro avg       0.43      0.42      0.39      1424\n                      weighted avg       0.47      0.53      0.45      1424\n",
+  "external_cross_dataset_validation": {
+    "test_samples": 800,
+    "overall_metrics": {
+      "accuracy": 0.47,
+      "precision_macro": 0.643,
+      "precision_weighted": 0.5902,
+      "recall_macro": 0.3808,
+      "recall_weighted": 0.47,
+      "f1_macro": 0.3546,
+      "f1_weighted": 0.3534,
+      "quadratic_weighted_kappa": 0.4972,
+      "roc_auc_ovr_macro": 0.7704,
+      "roc_auc_ovr_weighted": 0.7026
+    },
+    "screening_sensitivity_analysis": {
+      "any_dr_detection": {
+        "sensitivity_recall": 0.2393,
+        "specificity": 0.9839,
+        "false_negatives": 372,
+        "false_positives": 5,
+        "roc_auc": 0.6963
+      },
+      "referable_dr_detection_grade_2plus": {
+        "sensitivity_recall": 0.3722,
+        "specificity": 0.9878,
+        "false_negatives": 194,
+        "false_positives": 6,
+        "roc_auc": 0.8128
+      }
+    },
+    "per_source_metrics": {
+      "messidor2": {
+        "samples": 800,
+        "accuracy": 0.47,
+        "qwk": 0.4972,
+        "any_dr_sensitivity": 0.2393,
+        "any_dr_specificity": 0.9839
+      }
+    },
+    "per_class_metrics": {
+      "No diabetic retinopathy": {
+        "grade": 0,
+        "support": 311,
+        "precision": 0.4513,
+        "recall_sensitivity": 0.9839,
+        "specificity": 0.2393,
+        "f1_score": 0.6188,
+        "false_negatives": 5
+      },
+      "Mild": {
+        "grade": 1,
+        "support": 180,
+        "precision": 1.0,
+        "recall_sensitivity": 0.0056,
+        "specificity": 1.0,
+        "f1_score": 0.011,
+        "false_negatives": 179
+      },
+      "Moderate": {
+        "grade": 2,
+        "support": 200,
+        "precision": 0.383,
+        "recall_sensitivity": 0.09,
+        "specificity": 0.9517,
+        "f1_score": 0.1457,
+        "false_negatives": 182
+      },
+      "Severe": {
+        "grade": 3,
+        "support": 74,
+        "precision": 0.6885,
+        "recall_sensitivity": 0.5676,
+        "specificity": 0.9738,
+        "f1_score": 0.6222,
+        "false_negatives": 32
+      },
+      "Proliferative diabetic retinopathy": {
+        "grade": 4,
+        "support": 35,
+        "precision": 0.6923,
+        "recall_sensitivity": 0.2571,
+        "specificity": 0.9948,
+        "f1_score": 0.375,
+        "false_negatives": 26
+      }
+    },
+    "confusion_matrix": [
+      [
+        306,
+        0,
+        3,
+        0,
+        2
+      ],
+      [
+        178,
+        1,
+        0,
+        0,
+        1
+      ],
+      [
+        177,
+        0,
+        18,
+        5,
+        0
+      ],
+      [
+        12,
+        0,
+        19,
+        42,
+        1
+      ],
+      [
+        5,
+        0,
+        7,
+        14,
+        9
+      ]
+    ],
+    "classification_report_text": "                                    precision    recall  f1-score   support\n\n           No diabetic retinopathy       0.45      0.98      0.62       311\n                              Mild       1.00      0.01      0.01       180\n                          Moderate       0.38      0.09      0.15       200\n                            Severe       0.69      0.57      0.62        74\nProliferative diabetic retinopathy       0.69      0.26      0.38        35\n\n                          accuracy                           0.47       800\n                         macro avg       0.64      0.38      0.35       800\n                      weighted avg       0.59      0.47      0.35       800\n"
+  },
+  "limitations": "Evaluated on independent held-out multi-center test scans (n=1424) and zero-shot external Messidor-2 scans (n=800). Benchmark accuracy must NOT be interpreted as prospective clinical validation or regulatory clearance."
 }
