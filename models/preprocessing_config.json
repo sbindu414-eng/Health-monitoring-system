@@ -24,5 +24,7 @@
     "RandomRotation(degrees=20)",
     "ColorJitter(brightness=0.12, contrast=0.12, saturation=0.10, hue=0.02)"
   ],
-  "backbone_architecture": "mobilenet_v3_small"
+  "backbone_architecture": "efficientnet_b0",
+  "any_dr_threshold": 0.68,
+  "use_tta": true
 }

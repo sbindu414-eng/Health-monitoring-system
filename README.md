@@ -19,8 +19,8 @@
 4. **Fitness Estimation Module** — Interaction Ridge Regression estimating continuous fitness score (0–100) and VO2 max.
 5. **Integrated Risk Stratification** — Gradient Boosted Decision Trees synthesizing cross-domain risk scores.
 6. **AI Eye Image Analysis & Diabetes Screening** *(New)*:
-   - **Retinal Fundus Diabetic Retinopathy Grading (CNN):** Deep learning transfer learning (`MobileNetV3-Small`) trained on patient-disjoint clinical fundus photographs across the 5-grade ICDR scale (`0: No DR`, `1: Mild`, `2: Moderate`, `3: Severe`, `4: Proliferative DR`).
-   - **Anterior Eye / Iris Computer Vision Pipeline (Experimental):** OpenCV eye detection (`haarcascade_eye.xml`), pupil localization, concentric Hough iris boundary detection, eyelid/glare masking, sharpness/exposure quality rejection, and feature extraction. Supports both **Image Upload** and **Laptop Camera Snapshot Capture** in the UI. **Explicitly non-diagnostic for diabetes/glucose.**
+   - **Retinal Fundus Diabetic Retinopathy Grading (CNN):** Deep learning transfer learning (`EfficientNet-B0` with 4-view TTA & validation-calibrated binary threshold) trained on patient-disjoint clinical fundus photographs across the 5-grade ICDR scale (`0: No DR`, `1: Mild`, `2: Moderate`, `3: Severe`, `4: Proliferative DR`).
+   - **Anterior Eye / Iris Computer Vision Pipeline (Experimental):** OpenCV eye detection (`haarcascade_eye.xml`), pupil localization, concentric Hough iris boundary detection, eyelid/glare masking, sharpness/exposure quality rejection, and feature extraction. Supports both **Image Upload** and **Laptop Camera Snapshot Capture** in the UI. **Explicitly non-diagnostic for diabetes/glucose (never routed through the retinal fundus DR CNN).**
    - **Separate Tabular Clinical Diabetes Screening:** Trained on the **Pima Indians Diabetes Database** (`768` clinical records) using leak-free median imputation and Logistic Regression (`ROC-AUC = 0.8126` on held-out test set).
    - **SQLite Prediction Persistence:** Stores eye image and tabular screening history in `backend/eye_predictions.db`.
 
@@ -32,7 +32,7 @@ This project strictly separates four distinct medical tasks and never generates 
 
 | Task | Supported? | Implementation & Dataset |
 | :--- | :--- | :--- |
-| **Diabetic Retinopathy Detection (Retinal Fundus)** | **Yes (Research / Screening)** | `MobileNetV3-Small` CNN trained on DeepDRiD / RetinaMNIST 224×224 fundus photographs (grades 0–4) |
+| **Diabetic Retinopathy Detection (Retinal Fundus)** | **Yes (Research / Screening)** | `EfficientNet-B0` CNN trained on DeepDRiD / RetinaMNIST 224×224 fundus photographs (grades 0–4) |
 | **Anterior Iris Segmentation & Quality CV** | **Yes (Experimental CV Only)** | OpenCV pupil/iris segmentation, eyelid/glare masking, focus & brightness checks. **Not used for diabetes diagnosis.** |
 | **Clinical / Tabular Diabetes Risk Prediction** | **Yes (Separate Tabular Model)** | Trained strictly on Pima Indians Diabetes tabular features (Glucose, BMI, Age, BP, Insulin, etc.) |
 | **Blood Glucose Measurement (mg/dL) from Eye Image** | **No — Unsupported** | Explicitly blocked; UI & API display: *"Blood glucose cannot be measured from this image using the current model. Please use a validated blood glucose testing device."* |
@@ -73,7 +73,7 @@ major project/
 │   ├── pima_diabetes/          # diabetes.csv (768 records)
 │   └── samples/                # Unseen held-out test fundus samples (grades 0–4) for UI testing
 ├── models/
-│   ├── retinal_dr_model.pth    # Best trained MobileNetV3-Small checkpoint (Epoch 10)
+│   ├── retinal_dr_model.pth    # Best trained EfficientNet-B0 checkpoint (Epoch 7)
 │   ├── preprocessing_config.json
 │   ├── class_labels.json
 │   ├── evaluation_report.json  # Held-out test set metrics & per-class confusion matrix
@@ -134,8 +134,8 @@ python backend/train_models.py
 # Train Separate Pima Tabular Diabetes Model
 python -m src.eye_analysis.train_tabular
 
-# Train Retinal Fundus DR Classification CNN (MobileNetV3-Small, 15 epochs)
-python -m src.eye_analysis.train_retinal --arch mobilenet_v3_small --epochs 15 --batch-size 32 --lr 0.0003
+# Train Retinal Fundus DR Classification CNN (EfficientNet-B0, 14 epochs)
+python -m src.eye_analysis.train_retinal --arch efficientnet_b0 --epochs 14 --batch-size 32 --lr 0.0003
 ```
 
 ### 4. Evaluate on Held-Out Test Split
@@ -165,19 +165,19 @@ Or build frontend (`npm run build`) and serve directly from `http://localhost:50
 
 ## Real Held-Out Evaluation Results
 
-### Retinal Fundus CNN (`MobileNetV3-Small`, Held-Out Test Split `n = 365`)
-- **5-Class Overall Accuracy**: `61.92%`
-- **Weighted F1-Score**: `61.54%` | **Macro F1-Score**: `50.07%`
-- **One-vs-Rest ROC-AUC (Macro)**: `0.8548` | **Weighted**: `0.8668`
-- **Referable DR (`>= Grade 2`) Screening Sensitivity**: **`84.88%`** (`Specificity: 89.12%`, `ROC-AUC: 0.9408`, `False Negatives: 26`)
-- **Any DR (`>= Grade 1`) Screening Sensitivity**: **`84.36%`** (`Specificity: 77.27%`, `ROC-AUC: 0.8968`, `False Negatives: 33`)
+### Retinal Fundus CNN (`EfficientNet-B0` + 4-View TTA, Held-Out Test Split `n = 365`)
+- **5-Class Overall Accuracy**: `65.75%`
+- **Weighted F1-Score**: `66.11%` | **Macro F1-Score**: `57.60%`
+- **One-vs-Rest ROC-AUC (Macro)**: `0.8661` | **Weighted**: `0.8803`
+- **Referable DR (`>= Grade 2`) Screening Sensitivity**: **`78.49%`** (`Specificity: 97.93%`, `ROC-AUC: 0.9494`, `False Positives: 4`)
+- **Any DR (`>= Grade 1`) Screening Sensitivity**: **`83.89%`** (`Specificity: 80.52%`, `ROC-AUC: 0.9000`, `False Positives: 30`)
 
 ### Separate Tabular Diabetes Screening (`Pima Indians Diabetes`, 20% Test Split `n = 154`)
 - **Selected Model**: `LogisticRegression` (with median zero-imputation + scaling inside Pipeline)
 - **Test Accuracy**: `73.38%` | **Recall (Sensitivity)**: `70.37%` | **Specificity**: `75.00%` | **ROC-AUC**: `0.8126`
 
 ### Known Limitations
-- **Class Imbalance & Rare Grade Sensitivity**: Grade 4 (`Proliferative diabetic retinopathy`, `n=66` train, `n=20` test) has low exact-grade recall (`15.0%`), with `13/20` cases predicted into adjacent `Grade 3 (Severe)` (still flagged as Referable DR). `Grade 1 (Mild)` (`n=39` test) also exhibits boundary overlap with `No DR` (`38.46%` recall).
+- **Class Imbalance & Adjacent-Grade Overlap**: `Grade 4 (Proliferative DR)` (`n=66` train, `n=20` test) achieves `35.0%` exact-grade recall (`8/20` predicted as adjacent `Grade 3 Severe`), and `Grade 2 (Moderate)` occasionally overlaps with `Grade 1 (Mild)` (`46.59%` exact recall).
 - **Resolution & External Generalization**: Training at `224×224` on RetinaMNIST/DeepDRiD (`1,080` training scans) cannot match multi-center clinical grading performance trained on 50,000+ high-resolution fundus images.
 - **Not a Clinical Device**: All outputs are experimental AI academic screening demonstrations, not clinical diagnoses.
 

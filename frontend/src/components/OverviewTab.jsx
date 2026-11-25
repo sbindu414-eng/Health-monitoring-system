@@ -72,7 +72,7 @@ export default function OverviewTab({ onSelectTab, onRunFullScan, results }) {
             id: 'eye',
             num: '06',
             name: 'AI Eye Image Analysis',
-            algo: 'MobileNetV3 CNN + OpenCV',
+            algo: 'EfficientNet-B0 CNN + OpenCV',
             acc: 'Retinal DR + Iris CV',
             cv: 'DeepDRiD + Pima ML',
             desc: 'Classifies retinal fundus diabetic retinopathy severity (0-4), performs experimental iris CV segmentation, and runs separate Pima tabular risk.',
