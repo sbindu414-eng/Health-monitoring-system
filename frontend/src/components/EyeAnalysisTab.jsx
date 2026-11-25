@@ -643,13 +643,52 @@ export default function EyeAnalysisTab({ session }) {
 
                     {!isAnalyzing && analysisResult && (
                         <div className="space-y-4">
+
+                            {/* ── BIG BINARY RESULT CARD (shown for all completed eye analyses) ── */}
+                            {analysisResult.status === 'completed' && analysisResult.binary_label && (
+                                <div
+                                    className={`rounded-2xl p-5 border-2 text-center shadow-lg ${
+                                        analysisResult.diabetes_detected
+                                            ? 'bg-amber-950/40 border-amber-400/70 shadow-amber-900/30'
+                                            : 'bg-emerald-950/40 border-emerald-400/70 shadow-emerald-900/30'
+                                    }`}
+                                >
+                                    <div className={`text-3xl sm:text-4xl font-black tracking-tight mb-1 ${
+                                        analysisResult.diabetes_detected ? 'text-amber-300' : 'text-emerald-300'
+                                    }`}>
+                                        {analysisResult.diabetes_detected ? '⚠ DIABETIC RETINOPATHY DETECTED' : '✓ NO DIABETIC RETINOPATHY SIGNS'}
+                                    </div>
+                                    <div className={`text-sm font-semibold mb-2 ${
+                                        analysisResult.diabetes_detected ? 'text-amber-200' : 'text-emerald-200'
+                                    }`}>
+                                        Severity: {analysisResult.severity_tier || '—'}
+                                        {analysisResult.confidence_pct > 0 && ` · Model Confidence: ${analysisResult.confidence_pct}%`}
+                                    </div>
+                                    {analysisResult.severity_description && (
+                                        <p className="text-xs text-slate-300 max-w-lg mx-auto">
+                                            {analysisResult.severity_description}
+                                        </p>
+                                    )}
+                                    {analysisResult.any_dr_probability_pct !== undefined && (
+                                        <div className="mt-3 inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-950/60 border border-slate-700 text-xs font-mono text-slate-300">
+                                            Any DR Probability: <span className={`font-bold ${analysisResult.diabetes_detected ? 'text-amber-300' : 'text-emerald-300'}`}>{analysisResult.any_dr_probability_pct}%</span>
+                                        </div>
+                                    )}
+                                    {analysisResult.detected_modality === 'anterior_iris' && (
+                                        <p className="text-[10px] text-slate-400 mt-2 italic">
+                                            Note: CNN trained on retinal fundus scans. Upload a retinal fundus image for clinically meaningful screening.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
                             {/* Prediction Header Card */}
                             <div
                                 className={`rounded-xl p-4 border ${
                                     analysisResult.status === 'completed'
-                                        ? analysisResult.detected_modality === 'retinal_fundus' && analysisResult.predicted_grade >= 2
+                                        ? (analysisResult.diabetes_detected
                                             ? 'bg-amber-950/25 border-amber-500/40'
-                                            : 'bg-emerald-950/20 border-emerald-500/40'
+                                            : 'bg-emerald-950/20 border-emerald-500/40')
                                         : 'bg-rose-950/25 border-rose-500/40'
                                 }`}
                             >
@@ -665,8 +704,8 @@ export default function EyeAnalysisTab({ session }) {
                                                 </span>
                                             )}
                                         </div>
-                                        <h4 className="text-lg sm:text-xl font-extrabold text-white">
-                                            {analysisResult.prediction_label}
+                                        <h4 className="text-base font-bold text-white">
+                                            DR Severity: {analysisResult.severity_label || analysisResult.severity_tier || '—'}
                                         </h4>
                                         {analysisResult.modality_note && (
                                             <p className="text-xs text-slate-300">{analysisResult.modality_note}</p>
@@ -678,9 +717,7 @@ export default function EyeAnalysisTab({ session }) {
 
                                     {analysisResult.status === 'completed' && (
                                         <div className="text-right bg-slate-950/80 px-3.5 py-2 rounded-xl border border-slate-800">
-                                            <div className="text-[10px] text-slate-400 font-mono uppercase">
-                                                {analysisResult.detected_modality === 'retinal_fundus' ? 'Model Confidence' : 'Quality Score'}
-                                            </div>
+                                            <div className="text-[10px] text-slate-400 font-mono uppercase">Model Confidence</div>
                                             <div className="text-2xl font-extrabold font-mono text-sky-300">
                                                 {analysisResult.confidence_pct}%
                                             </div>
@@ -719,32 +756,40 @@ export default function EyeAnalysisTab({ session }) {
                                 </div>
                             )}
 
-                            {/* Retinal Fundus 5-Class Probability Distribution */}
-                            {analysisResult.detected_modality === 'retinal_fundus' && probEntries.length > 0 && (
+                            {/* DR Class Probability Distribution — shown for ALL completed results with class_probabilities */}
+                            {analysisResult.status === 'completed' && probEntries.length > 0 && (
                                 <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 space-y-3">
                                     <div className="flex flex-wrap justify-between items-center gap-2">
                                         <h5 className="text-xs font-bold text-slate-200">
-                                            Diabetic Retinopathy Class Probability Distribution
+                                            Diabetic Retinopathy Severity Probabilities
+                                            {analysisResult.detected_modality === 'anterior_iris' && (
+                                                <span className="ml-2 text-amber-400 font-normal">(Indicative — based on retinal DR model)</span>
+                                            )}
                                         </h5>
-                                        <span className="text-[11px] font-mono text-amber-300">
-                                            Referable DR (Moderate+) Prob: {analysisResult.referable_dr_probability_pct}%
-                                        </span>
+                                        {analysisResult.referable_dr_probability_pct !== undefined && (
+                                            <span className="text-[11px] font-mono text-amber-300">
+                                                Referable DR (Moderate+): {analysisResult.referable_dr_probability_pct}%
+                                            </span>
+                                        )}
                                     </div>
                                     <div className="space-y-2">
-                                        {probEntries.map(([clsName, pct]) => (
-                                            <div key={clsName} className="space-y-1">
-                                                <div className="flex justify-between text-[11px] font-mono">
-                                                    <span className="text-slate-300">{clsName}</span>
-                                                    <span className="text-sky-300 font-semibold">{pct}%</span>
+                                        {probEntries.map(([clsName, pct]) => {
+                                            const isHighest = pct === Math.max(...probEntries.map(([, v]) => v));
+                                            return (
+                                                <div key={clsName} className="space-y-1">
+                                                    <div className="flex justify-between text-[11px] font-mono">
+                                                        <span className={`${isHighest ? 'text-white font-bold' : 'text-slate-300'}`}>{clsName}</span>
+                                                        <span className={`font-semibold ${isHighest ? 'text-amber-300' : 'text-sky-300'}`}>{pct}%</span>
+                                                    </div>
+                                                    <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden">
+                                                        <div
+                                                            className={`h-2 rounded-full transition-all duration-500 ${isHighest ? 'bg-gradient-to-r from-amber-500 to-rose-500' : 'bg-gradient-to-r from-sky-500 to-indigo-500'}`}
+                                                            style={{ width: `${Math.min(100, Math.max(1, pct))}%` }}
+                                                        />
+                                                    </div>
                                                 </div>
-                                                <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden">
-                                                    <div
-                                                        className="bg-gradient-to-r from-sky-500 to-indigo-500 h-2 rounded-full transition-all duration-500"
-                                                        style={{ width: `${Math.min(100, Math.max(1, pct))}%` }}
-                                                    />
-                                                </div>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                     {analysisResult.clinical_guidance && (
                                         <div className="text-xs text-slate-300 pt-2 border-t border-slate-800">
@@ -754,22 +799,15 @@ export default function EyeAnalysisTab({ session }) {
                                 </div>
                             )}
 
-                            {/* Experimental Anterior Iris Segmentation Visualization & CV Features */}
+                            {/* Anterior Iris Segmentation Visualization & CV Features */}
                             {analysisResult.detected_modality === 'anterior_iris' && analysisResult.iris_analysis && (
                                 <div className="space-y-4">
-                                    <div className="p-3.5 rounded-xl bg-amber-950/35 border border-amber-500/45 text-xs text-amber-200 space-y-1">
-                                        <div className="font-bold text-amber-300 flex items-center gap-1.5">
-                                            <AlertTriangle className="w-4 h-4" />
-                                            <span>Why Diabetes / Blood Sugar Is Not Diagnosed From This Photo</span>
+                                    {analysisResult.cnn_on_iris_note && (
+                                        <div className="p-3 rounded-xl bg-sky-950/35 border border-sky-500/40 text-xs text-sky-200">
+                                            <strong className="text-sky-300">ℹ CNN Note:</strong> {analysisResult.cnn_on_iris_note}
+                                            <br />For best accuracy, use a <strong>Retinal Fundus scan</strong> or try the sample fundus images on the left.
                                         </div>
-                                        <p className="leading-relaxed">
-                                            This is an <strong>external eye / iris photograph</strong> (not an internal retinal fundus scan). Even in a diabetic (&ldquo;sugar&rdquo;) patient, diabetes cannot be detected from an ordinary photo of the iris or front of the eye.
-                                        </p>
-                                        <p className="text-[11px] text-amber-300/90">
-                                            &bull; To screen eye blood vessel damage from diabetes: upload a <strong>Retinal Fundus scan</strong> (or try the unseen test fundus samples on the left).<br />
-                                            &bull; To screen diabetes risk from health values: use the <strong>Pima Clinical Diabetes Screening</strong> form below.
-                                        </p>
-                                    </div>
+                                    )}
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-950/70 border border-slate-800 rounded-xl p-4">
                                     <div className="space-y-2">

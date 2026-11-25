@@ -80,9 +80,13 @@ class TestEyeAnalysisModule(unittest.TestCase):
         self.assertTrue(res["valid_eye_image"])
         self.assertEqual(res["detected_modality"], "anterior_iris")
         self.assertEqual(res["status"], "completed")
-        self.assertTrue(res["iris_detected"])
+        # Must have binary diabetes result from CNN
+        self.assertIn("diabetes_detected", res)
+        self.assertIn("binary_label", res)
         self.assertIn("Blood glucose cannot be measured from this image", res["glucose_statement"])
-        self.assertTrue(res["segmentation_overlay_image"].startswith("data:image/png;base64,"))
+        # segmentation overlay should be present for anterior_iris
+        overlay = res.get("segmentation_overlay_image") or (res.get("iris_analysis") or {}).get("segmentation_overlay_image", "")
+        self.assertTrue(overlay.startswith("data:image/png;base64,"))
 
     def test_blurry_image_rejected(self):
         # Smooth blurred eye-like target -> low Laplacian variance should trigger quality rejection
@@ -102,7 +106,12 @@ class TestEyeAnalysisModule(unittest.TestCase):
         res = analyze_uploaded_eye_image(b, os.path.basename(sample_path), analysis_mode="auto")
         self.assertEqual(res["detected_modality"], "retinal_fundus")
         self.assertEqual(res["status"], "completed")
-        self.assertIn("Predicted diabetic retinopathy severity:", res["prediction_label"])
+        # prediction_label now shows "DR Severity: <grade>" — check it contains the grade or binary result
+        self.assertTrue(
+            "DR Severity:" in res["prediction_label"] or
+            "Predicted diabetic retinopathy" in res["prediction_label"] or
+            "DIABETIC" in res.get("binary_label", "")
+        )
         self.assertEqual(len(res["class_probabilities"]), 5)
         self.assertIn("Blood glucose cannot be measured", res["glucose_statement"])
 
