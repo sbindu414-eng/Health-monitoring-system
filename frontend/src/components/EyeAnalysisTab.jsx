@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
     Eye,
     Upload,
+    Camera,
+    CameraOff,
+    Aperture,
     Sparkles,
     AlertTriangle,
     CheckCircle2,
@@ -31,6 +34,13 @@ const DEFAULT_PIMA_INPUTS = {
 
 export default function EyeAnalysisTab({ session }) {
     const fileInputRef = useRef(null);
+    const videoRef = useRef(null);
+    const captureCanvasRef = useRef(null);
+    const streamRef = useRef(null);
+
+    const [inputSource, setInputSource] = useState('upload'); // 'upload' | 'camera'
+    const [cameraActive, setCameraActive] = useState(false);
+    const [cameraReady, setCameraReady] = useState(false);
 
     const [selectedFile, setSelectedFile] = useState(null);
     const [selectedSample, setSelectedSample] = useState('');
@@ -70,6 +80,84 @@ export default function EyeAnalysisTab({ session }) {
             }
         };
     }, [previewUrl]);
+
+    const stopCamera = () => {
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track) => track.stop());
+            streamRef.current = null;
+        }
+        if (videoRef.current) {
+            videoRef.current.srcObject = null;
+        }
+        setCameraActive(false);
+        setCameraReady(false);
+    };
+
+    useEffect(() => {
+        return () => {
+            stopCamera();
+        };
+    }, []);
+
+    const startCamera = async () => {
+        setErrorMsg('');
+        setCameraReady(false);
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            setErrorMsg('Laptop webcam API is unavailable in this browser.');
+            return;
+        }
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+                audio: false,
+            });
+            streamRef.current = stream;
+            setCameraActive(true);
+            setTimeout(async () => {
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                    await videoRef.current.play();
+                    setCameraReady(true);
+                }
+            }, 50);
+        } catch (err) {
+            setErrorMsg(`Unable to access laptop camera: ${err.message || 'Permission denied'}`);
+            stopCamera();
+        }
+    };
+
+    const handleCaptureSnapshot = () => {
+        const video = videoRef.current;
+        const canvas = captureCanvasRef.current;
+        if (!video || !canvas || !cameraReady) {
+            setErrorMsg('Camera stream is not ready yet.');
+            return;
+        }
+        const width = video.videoWidth || 640;
+        const height = video.videoHeight || 480;
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, width, height);
+
+        canvas.toBlob((blob) => {
+            if (!blob) {
+                setErrorMsg('Failed to capture image from laptop camera.');
+                return;
+            }
+            const file = new File([blob], `webcam_eye_${Date.now()}.png`, { type: 'image/png' });
+            handleFileSelect(file);
+            stopCamera();
+        }, 'image/png');
+    };
+
+    const handleSourceSwitch = (nextSource) => {
+        setInputSource(nextSource);
+        setErrorMsg('');
+        if (nextSource === 'upload') {
+            stopCamera();
+        }
+    };
 
     const handleFileSelect = (file) => {
         if (!file) return;
@@ -282,15 +370,44 @@ export default function EyeAnalysisTab({ session }) {
 
             {/* Main Eye Upload & Prediction Workspace */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Left Column: Upload, Modality Mode, Preview & Sample Loader */}
+                {/* Left Column: Upload / Camera Capture, Modality Mode, Preview & Sample Loader */}
                 <div className="rounded-2xl p-5 bg-slate-900/80 border border-slate-800 shadow-xl space-y-4">
                     <div className="flex justify-between items-center border-b border-slate-800 pb-3">
                         <h3 className="text-sm font-bold text-sky-400 flex items-center gap-2">
-                            <Upload className="w-4 h-4" /> Eye Image Upload
+                            {inputSource === 'camera' ? <Camera className="w-4 h-4" /> : <Upload className="w-4 h-4" />}
+                            <span>{inputSource === 'camera' ? 'Laptop Camera Capture' : 'Eye Image Upload'}</span>
                         </h3>
                         <span className="text-[10px] px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 font-mono">
                             Max {moduleStatus?.max_upload_mb || 10} MB
                         </span>
+                    </div>
+
+                    {/* Source Toggle: Keep BOTH Upload Image & Laptop Camera Capture */}
+                    <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-950 rounded-xl border border-slate-800 text-xs">
+                        <button
+                            type="button"
+                            onClick={() => handleSourceSwitch('upload')}
+                            className={`py-1.5 px-2 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-all ${
+                                inputSource === 'upload'
+                                    ? 'bg-sky-600 text-white shadow-sm'
+                                    : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                        >
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>Upload Image</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => handleSourceSwitch('camera')}
+                            className={`py-1.5 px-2 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-all ${
+                                inputSource === 'camera'
+                                    ? 'bg-sky-600 text-white shadow-sm'
+                                    : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                        >
+                            <Camera className="w-3.5 h-3.5" />
+                            <span>Laptop Camera</span>
+                        </button>
                     </div>
 
                     {/* Analysis Mode Selector */}
@@ -307,56 +424,121 @@ export default function EyeAnalysisTab({ session }) {
                         </select>
                     </div>
 
-                    {/* Upload Dropzone */}
-                    <div
-                        onClick={() => fileInputRef.current?.click()}
-                        className="border-2 border-dashed border-slate-700 hover:border-sky-500/70 bg-slate-950/70 rounded-xl p-4 text-center cursor-pointer transition-all space-y-2"
-                    >
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept=".png,.jpg,.jpeg,.bmp,.webp,.tif,.tiff"
-                            className="hidden"
-                            onChange={(e) => handleFileSelect(e.target.files?.[0])}
-                        />
-                        <ImageIcon className="w-7 h-7 text-sky-400 mx-auto opacity-80" />
-                        <div className="text-xs font-medium text-slate-200">
-                            {selectedFile
-                                ? selectedFile.name
-                                : selectedSample
-                                ? `Test Sample: ${selectedSample}`
-                                : 'Click to upload retinal fundus or anterior eye image'}
-                        </div>
-                        <div className="text-[10px] text-slate-500 font-mono">
-                            Supports PNG, JPG, JPEG, WEBP, BMP, TIFF
-                        </div>
-                    </div>
-
-                    {/* Quick Held-Out Test Samples */}
-                    {samples.length > 0 && (
-                        <div className="space-y-1.5">
-                            <div className="text-[11px] text-slate-400 flex items-center justify-between">
-                                <span>Or load unseen held-out test fundus sample:</span>
+                    {inputSource === 'upload' ? (
+                        <>
+                            {/* Upload Dropzone */}
+                            <div
+                                onClick={() => fileInputRef.current?.click()}
+                                className="border-2 border-dashed border-slate-700 hover:border-sky-500/70 bg-slate-950/70 rounded-xl p-4 text-center cursor-pointer transition-all space-y-2"
+                            >
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept=".png,.jpg,.jpeg,.bmp,.webp,.tif,.tiff"
+                                    className="hidden"
+                                    onChange={(e) => handleFileSelect(e.target.files?.[0])}
+                                />
+                                <ImageIcon className="w-7 h-7 text-sky-400 mx-auto opacity-80" />
+                                <div className="text-xs font-medium text-slate-200">
+                                    {selectedFile
+                                        ? selectedFile.name
+                                        : selectedSample
+                                        ? `Test Sample: ${selectedSample}`
+                                        : 'Click to upload retinal fundus or anterior eye image'}
+                                </div>
+                                <div className="text-[10px] text-slate-500 font-mono">
+                                    Supports PNG, JPG, JPEG, WEBP, BMP, TIFF
+                                </div>
                             </div>
-                            <div className="flex flex-wrap gap-1.5">
-                                {samples.map((sName) => {
-                                    const labelHint = sName.replace('sample_test_', '').replace('.png', '').replace(/_/g, ' ');
-                                    const active = selectedSample === sName;
-                                    return (
+
+                            {/* Quick Held-Out Test Samples */}
+                            {samples.length > 0 && (
+                                <div className="space-y-1.5">
+                                    <div className="text-[11px] text-slate-400 flex items-center justify-between">
+                                        <span>Or load unseen held-out test fundus sample:</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {samples.map((sName) => {
+                                            const labelHint = sName.replace('sample_test_', '').replace('.png', '').replace(/_/g, ' ');
+                                            const active = selectedSample === sName;
+                                            return (
+                                                <button
+                                                    key={sName}
+                                                    type="button"
+                                                    onClick={() => handleSelectSample(sName)}
+                                                    className={`px-2 py-1 rounded-md text-[10px] font-mono border transition-all ${
+                                                        active
+                                                            ? 'bg-sky-500/20 border-sky-400 text-sky-200'
+                                                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                                                    }`}
+                                                >
+                                                    {labelHint}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    ) : (
+                        /* Laptop Camera Snapshot Capture Box */
+                        <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 space-y-3">
+                            <div className="relative rounded-lg overflow-hidden bg-black aspect-video flex items-center justify-center border border-slate-800">
+                                <video
+                                    ref={videoRef}
+                                    playsInline
+                                    muted
+                                    className={`w-full h-full object-cover ${cameraActive ? 'block' : 'hidden'}`}
+                                />
+                                {!cameraActive && (
+                                    <div className="text-center p-4 space-y-1.5 text-slate-400">
+                                        <Camera className="w-7 h-7 mx-auto text-sky-400 opacity-70" />
+                                        <div className="text-xs font-medium text-slate-200">Laptop Camera Ready</div>
+                                        <p className="text-[10px] text-slate-500">
+                                            Captures an external eye/iris photo for CV quality &amp; iris segmentation (cannot measure blood glucose).
+                                        </p>
+                                    </div>
+                                )}
+                                {cameraActive && (
+                                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                                        <div className="w-36 h-24 rounded-full border-2 border-dashed border-sky-400/75 flex items-center justify-center">
+                                            <span className="text-[9px] font-mono text-sky-200 bg-slate-950/80 px-1.5 py-0.5 rounded">
+                                                Center Eye Here
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+                                <canvas ref={captureCanvasRef} className="hidden" />
+                            </div>
+
+                            <div className="flex gap-2">
+                                {!cameraActive ? (
+                                    <button
+                                        type="button"
+                                        onClick={startCamera}
+                                        className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all"
+                                    >
+                                        <Camera className="w-3.5 h-3.5" /> Start Camera
+                                    </button>
+                                ) : (
+                                    <>
                                         <button
-                                            key={sName}
                                             type="button"
-                                            onClick={() => handleSelectSample(sName)}
-                                            className={`px-2 py-1 rounded-md text-[10px] font-mono border transition-all ${
-                                                active
-                                                    ? 'bg-sky-500/20 border-sky-400 text-sky-200'
-                                                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                                            }`}
+                                            onClick={handleCaptureSnapshot}
+                                            disabled={!cameraReady}
+                                            className="flex-1 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
                                         >
-                                            {labelHint}
+                                            <Aperture className="w-3.5 h-3.5" /> Capture Eye Snapshot
                                         </button>
-                                    );
-                                })}
+                                        <button
+                                            type="button"
+                                            onClick={stopCamera}
+                                            className="px-3 py-2 rounded-lg bg-rose-600/80 hover:bg-rose-500 text-white text-xs font-semibold flex items-center justify-center gap-1 transition-all"
+                                        >
+                                            <CameraOff className="w-3.5 h-3.5" /> Stop
+                                        </button>
+                                    </>
+                                )}
                             </div>
                         </div>
                     )}

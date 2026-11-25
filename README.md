@@ -20,7 +20,7 @@
 5. **Integrated Risk Stratification** — Gradient Boosted Decision Trees synthesizing cross-domain risk scores.
 6. **AI Eye Image Analysis & Diabetes Screening** *(New)*:
    - **Retinal Fundus Diabetic Retinopathy Grading (CNN):** Deep learning transfer learning (`MobileNetV3-Small`) trained on patient-disjoint clinical fundus photographs across the 5-grade ICDR scale (`0: No DR`, `1: Mild`, `2: Moderate`, `3: Severe`, `4: Proliferative DR`).
-   - **Anterior Eye / Iris Computer Vision Pipeline (Experimental):** OpenCV eye detection (`haarcascade_eye.xml`), pupil localization, concentric Hough iris boundary detection, eyelid/glare masking, sharpness/exposure quality rejection, and feature extraction. **Explicitly non-diagnostic for diabetes/glucose.**
+   - **Anterior Eye / Iris Computer Vision Pipeline (Experimental):** OpenCV eye detection (`haarcascade_eye.xml`), pupil localization, concentric Hough iris boundary detection, eyelid/glare masking, sharpness/exposure quality rejection, and feature extraction. Supports both **Image Upload** and **Laptop Camera Snapshot Capture** in the UI. **Explicitly non-diagnostic for diabetes/glucose.**
    - **Separate Tabular Clinical Diabetes Screening:** Trained on the **Pima Indians Diabetes Database** (`768` clinical records) using leak-free median imputation and Logistic Regression (`ROC-AUC = 0.8126` on held-out test set).
    - **SQLite Prediction Persistence:** Stores eye image and tabular screening history in `backend/eye_predictions.db`.
 
