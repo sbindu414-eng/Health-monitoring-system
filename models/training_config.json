@@ -1,0 +1,25 @@
+{
+  "model_version": "2.0.0-multicenter",
+  "selected_architecture": "efficientnet_b0",
+  "loss_function": "WeightedFocalLoss(gamma=1.5)",
+  "optimizer": "AdamW",
+  "gradual_unfreezing": true,
+  "warmup_head_epochs": 1,
+  "finetune_backbone_lr": 0.00035,
+  "finetune_head_lr": 0.000875,
+  "weight_decay": 0.0003,
+  "scheduler": "CosineAnnealingLR",
+  "early_stopping_patience": 3,
+  "batch_size": 48,
+  "train_samples": 1410,
+  "val_samples": 320,
+  "class_weights": [
+    1.2,
+    1.0,
+    1.0,
+    1.1,
+    1.15
+  ],
+  "any_dr_threshold": 0.73,
+  "trained_at": "2026-11-26 01:08:03"
+}

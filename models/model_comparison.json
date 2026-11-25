@@ -1,0 +1,17 @@
+{
+  "compared_at": "2026-11-26 01:08:03",
+  "selection_criterion": "0.45*Val_QWK + 0.35*Val_MacroF1 + 0.20*Val_Accuracy",
+  "selected_winner": "efficientnet_b0",
+  "candidates": [
+    {
+      "arch": "efficientnet_b0",
+      "best_epoch": 4,
+      "any_dr_threshold": 0.73,
+      "val_accuracy": 0.5813,
+      "val_macro_f1": 0.4829,
+      "val_qwk": 0.69,
+      "val_loss": 0.7056,
+      "selection_score": 0.5957
+    }
+  ]
+}

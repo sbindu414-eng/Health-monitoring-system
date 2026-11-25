@@ -7,3 +7,5 @@ backend/__pycache__/
 *.db
 data/retinal_fundus/raw/
 data/retinal_fundus/images/
+data/external_cache/
+data/retinal_fundus/multicenter_images/
