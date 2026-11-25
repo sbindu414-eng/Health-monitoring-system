@@ -25,7 +25,7 @@ from src.eye_analysis.preprocessing import (
     get_eval_transforms,
     preprocess_fundus_rgb,
 )
-from src.eye_analysis.train_retinal import build_backbone_model
+from src.eye_analysis.train_retinal import build_backbone_model, predict_batch_tta
 
 MODELS_DIR = os.path.join(ROOT_DIR, "models")
 RETINAL_MODEL_PATH = os.path.join(MODELS_DIR, "retinal_dr_model.pth")
@@ -55,22 +55,34 @@ DR_CLINICAL_GUIDANCE = {
 
 _RETINAL_MODEL_CACHE = None
 _RETINAL_META_CACHE = None
+_RETINAL_MTIME_CACHE = None
 _PIMA_CACHE = None
 
 
 def load_retinal_bundle() -> Tuple[Optional[torch.nn.Module], Dict]:
-    """Load trained retinal CNN weights & configs efficiently once."""
-    global _RETINAL_MODEL_CACHE, _RETINAL_META_CACHE
-    if _RETINAL_MODEL_CACHE is not None and _RETINAL_META_CACHE is not None:
-        return _RETINAL_MODEL_CACHE, _RETINAL_META_CACHE
+    """Load trained retinal CNN weights & configs efficiently once (reloading if checkpoint updated)."""
+    global _RETINAL_MODEL_CACHE, _RETINAL_META_CACHE, _RETINAL_MTIME_CACHE
 
     if not os.path.exists(RETINAL_MODEL_PATH):
+        _RETINAL_MODEL_CACHE = None
+        _RETINAL_META_CACHE = None
+        _RETINAL_MTIME_CACHE = None
         return None, {"trained": False, "message": "Retinal DR model weights not found. Run training script first."}
+
+    cur_mtime = os.path.getmtime(RETINAL_MODEL_PATH)
+    if (
+        _RETINAL_MODEL_CACHE is not None
+        and _RETINAL_META_CACHE is not None
+        and _RETINAL_MTIME_CACHE == cur_mtime
+    ):
+        return _RETINAL_MODEL_CACHE, _RETINAL_META_CACHE
 
     ckpt = torch.load(RETINAL_MODEL_PATH, map_location="cpu", weights_only=False)
     arch = ckpt.get("arch", "mobilenet_v3_small")
     image_size = int(ckpt.get("image_size", 224))
     apply_clahe = bool(ckpt.get("apply_clahe", True))
+    any_dr_threshold = float(ckpt.get("any_dr_threshold", 0.55))
+    use_tta = bool(ckpt.get("use_tta", True))
 
     model = build_backbone_model(arch=arch, num_classes=int(ckpt.get("num_classes", 5)), pretrained=False)
     model.load_state_dict(ckpt["state_dict"])
@@ -92,6 +104,8 @@ def load_retinal_bundle() -> Tuple[Optional[torch.nn.Module], Dict]:
         "arch": arch,
         "image_size": image_size,
         "apply_clahe": apply_clahe,
+        "any_dr_threshold": any_dr_threshold,
+        "use_tta": use_tta,
         "trained_at": ckpt.get("trained_at"),
         "best_epoch": ckpt.get("best_epoch"),
         "labels": labels,
@@ -99,6 +113,7 @@ def load_retinal_bundle() -> Tuple[Optional[torch.nn.Module], Dict]:
     }
     _RETINAL_MODEL_CACHE = model
     _RETINAL_META_CACHE = meta
+    _RETINAL_MTIME_CACHE = cur_mtime
     return model, meta
 
 
@@ -194,10 +209,9 @@ def analyze_uploaded_eye_image(
             "disclaimer": MEDICAL_DISCLAIMER,
         }
 
-    # ── KEY FIX: Run the trained DR CNN on ALL valid eye images (not just retinal_fundus) ──
-    # Anterior iris/external eye images are also passed through the CNN when user uploads any eye image.
-    # The CNN was trained on retinal fundus images but we surface the binary result for all eye types.
-    if detected_modality in ("retinal_fundus", "anterior_iris") or analysis_mode in ("retinal_fundus", "auto"):
+    # Strict modality isolation: run Retinal Fundus DR CNN ONLY on validated retinal_fundus images.
+    # Anterior eye / iris images (including webcam photos) must NEVER be fed to the fundus CNN.
+    if detected_modality == "retinal_fundus":
         model, meta = load_retinal_bundle()
         if model is None:
             return {
@@ -216,6 +230,8 @@ def analyze_uploaded_eye_image(
 
         image_size = int(meta.get("image_size", 224))
         apply_clahe = bool(meta.get("apply_clahe", True))
+        any_dr_threshold = float(meta.get("any_dr_threshold", 0.55))
+        use_tta = bool(meta.get("use_tta", True))
         labels = meta.get("labels", DR_CLASS_NAMES)
 
         preprocessed_pil = preprocess_fundus_rgb(rgb_np, target_size=image_size, apply_clahe=apply_clahe)
@@ -223,131 +239,94 @@ def analyze_uploaded_eye_image(
         x_tensor = eval_tf(preprocessed_pil).unsqueeze(0)
 
         with torch.no_grad():
-            logits = model(x_tensor)
-            probs_t = torch.softmax(logits, dim=1)[0]
+            probs_t = predict_batch_tta(model, x_tensor)[0] if use_tta else torch.softmax(model(x_tensor), dim=1)[0]
             probs = probs_t.numpy()
 
-        pred_idx = int(np.argmax(probs))
+        any_dr_prob_raw = float(np.sum(probs[1:]))
+        diabetes_detected = bool(any_dr_prob_raw >= any_dr_threshold)
+        if diabetes_detected:
+            pred_idx = int(np.argmax(probs))
+            if pred_idx == 0:
+                pred_idx = int(1 + np.argmax(probs[1:]))
+        else:
+            pred_idx = 0
+
         pred_label = labels[pred_idx]
         conf_pct = round(float(probs[pred_idx] * 100.0), 2)
         prob_map = {labels[i]: round(float(probs[i] * 100.0), 2) for i in range(len(probs))}
         referable_dr_prob = round(float(np.sum(probs[2:]) * 100.0), 2)
-        any_dr_prob = round(float(np.sum(probs[1:]) * 100.0), 2)
+        any_dr_prob = round(any_dr_prob_raw * 100.0, 2)
 
-        # Binary classification result — the key result the user sees
-        diabetes_detected = pred_idx >= 1  # Grade 1-4 = Diabetic Retinopathy Present
-        binary_label = "⚠ DIABETIC RETINOPATHY SIGNS DETECTED" if diabetes_detected else "✓ NO DIABETIC RETINOPATHY SIGNS DETECTED"
+        binary_label = (
+            "⚠ DIABETIC RETINOPATHY SIGNS DETECTED"
+            if diabetes_detected
+            else "✓ NO DIABETIC RETINOPATHY SIGNS DETECTED"
+        )
         binary_color = "warning" if diabetes_detected else "success"
 
-        # Severity tier for binary framing
-        if pred_idx == 0:
-            severity_tier = "No DR"
-            severity_description = "No diabetic retinopathy signs found on this retinal scan."
-        elif pred_idx == 1:
-            severity_tier = "Mild DR"
-            severity_description = "Mild diabetic retinopathy signs detected. Periodic monitoring recommended."
-        elif pred_idx == 2:
-            severity_tier = "Moderate DR"
-            severity_description = "Moderate diabetic retinopathy detected. Ophthalmologist referral recommended."
-        elif pred_idx == 3:
-            severity_tier = "Severe DR"
-            severity_description = "Severe diabetic retinopathy detected. Prompt specialist evaluation needed."
-        else:
-            severity_tier = "Proliferative DR"
-            severity_description = "Proliferative diabetic retinopathy detected. Urgent retinal evaluation required."
+        severity_meta = {
+            0: ("No DR", "No diabetic retinopathy lesions detected on this retinal fundus scan."),
+            1: ("Mild DR", "Mild non-proliferative diabetic retinopathy features detected. Periodic ophthalmic monitoring recommended."),
+            2: ("Moderate DR", "Moderate diabetic retinopathy signs detected. Ophthalmologist referral recommended."),
+            3: ("Severe DR", "Severe diabetic retinopathy signs detected. Prompt specialist evaluation recommended."),
+            4: ("Proliferative DR", "Proliferative diabetic retinopathy signs detected. Urgent specialist retinal evaluation required."),
+        }
+        severity_tier, severity_description = severity_meta[pred_idx]
 
-        # For anterior_iris: also run iris CV segmentation and merge
-        iris_res = analyze_iris_image(rgb_np) if detected_modality == "anterior_iris" else None
-
-        result = {
+        return {
             "status": "completed",
             "valid_eye_image": True,
             "analysis_mode": analysis_mode,
-            "detected_modality": detected_modality,
+            "detected_modality": "retinal_fundus",
             "modality_note": modality_info["reason"],
             "file_meta": file_meta,
             "quality": quality,
             "model_name": f"PyTorch Transfer Learning ({meta.get('arch')})",
-            # ── Binary result (prominent) ──
             "diabetes_detected": diabetes_detected,
             "binary_label": binary_label,
             "binary_color": binary_color,
             "severity_tier": severity_tier,
             "severity_description": severity_description,
-            # ── 5-class DR details ──
             "predicted_grade": pred_idx,
-            "prediction_label": f"DR Severity: {pred_label}",
+            "prediction_label": f"Predicted diabetic retinopathy severity: {pred_label}",
             "severity_label": pred_label,
             "confidence_pct": conf_pct,
             "referable_dr_probability_pct": referable_dr_prob,
             "any_dr_probability_pct": any_dr_prob,
+            "any_dr_threshold_pct": round(any_dr_threshold * 100.0, 1),
             "class_probabilities": prob_map,
             "clinical_guidance": DR_CLINICAL_GUIDANCE.get(pred_idx, ""),
             "glucose_statement": GLUCOSE_BOUNDARY_MESSAGE,
             "disclaimer": MEDICAL_DISCLAIMER,
         }
-        if iris_res is not None:
-            result["iris_detected"] = iris_res["iris_detected"]
-            result["segmentation_completed"] = iris_res["segmentation_completed"]
-            result["iris_analysis"] = iris_res
-            result["extracted_features"] = iris_res["extracted_features"]
-            result["segmentation_overlay_image"] = iris_res["segmentation_overlay_image"]
-        return result
 
-    # Fallback iris-only code (should not normally be reached)
+    # Anterior eye / iris computer vision pipeline ONLY (never run retinal fundus DR CNN on iris photos)
     iris_res = analyze_iris_image(rgb_np)
-    # Also attempt CNN analysis for reference
-    model, meta = load_retinal_bundle()
-    cnn_binary_result = None
-    if model is not None:
-        image_size = int(meta.get("image_size", 224))
-        apply_clahe = bool(meta.get("apply_clahe", True))
-        labels = meta.get("labels", DR_CLASS_NAMES)
-        preprocessed_pil = preprocess_fundus_rgb(rgb_np, target_size=image_size, apply_clahe=apply_clahe)
-        eval_tf = get_eval_transforms(image_size)
-        x_tensor = eval_tf(preprocessed_pil).unsqueeze(0)
-        with torch.no_grad():
-            logits = model(x_tensor)
-            probs_t = torch.softmax(logits, dim=1)[0]
-            probs = probs_t.numpy()
-        pred_idx = int(np.argmax(probs))
-        diabetes_detected = pred_idx >= 1
-        cnn_binary_result = {
-            "diabetes_detected": diabetes_detected,
-            "binary_label": "⚠ DIABETIC RETINOPATHY SIGNS DETECTED" if diabetes_detected else "✓ NO DIABETIC RETINOPATHY SIGNS DETECTED",
-            "severity_tier": ["No DR", "Mild DR", "Moderate DR", "Severe DR", "Proliferative DR"][pred_idx],
-            "predicted_grade": pred_idx,
-            "confidence_pct": round(float(probs[pred_idx] * 100.0), 2),
-            "any_dr_probability_pct": round(float(np.sum(probs[1:]) * 100.0), 2),
-            "class_probabilities": {labels[i]: round(float(probs[i] * 100.0), 2) for i in range(len(probs))},
-            "note": "CNN trained on retinal fundus images; result on external eye photo is indicative only.",
-        }
-
     return {
         "status": "completed",
         "valid_eye_image": True,
         "analysis_mode": analysis_mode,
         "detected_modality": "anterior_iris",
         "modality_note": (
-            "External anterior eye / iris photograph detected. "
-            "For best diabetic retinopathy detection accuracy, use a retinal fundus scan. "
-            "CNN result shown below is indicative only for external eye photos."
+            "External anterior eye / iris photograph detected (NOT an internal retinal fundus scan). "
+            "Front-of-eye photos and webcam captures cannot diagnose diabetes or screen retinal vessels, "
+            "so retinal DR grading is intentionally skipped to prevent false positive predictions."
         ),
         "file_meta": file_meta,
         "quality": quality,
-        "model_name": "OpenCV Iris Segmentation + DR CNN (Indicative)",
-        # ── Binary result shown for iris too ──
-        "diabetes_detected": cnn_binary_result["diabetes_detected"] if cnn_binary_result else False,
-        "binary_label": cnn_binary_result["binary_label"] if cnn_binary_result else "Model Not Available",
-        "binary_color": "warning" if (cnn_binary_result and cnn_binary_result["diabetes_detected"]) else "success",
-        "severity_tier": cnn_binary_result["severity_tier"] if cnn_binary_result else "Unknown",
-        "severity_description": "Result from DR CNN applied to external eye photo (indicative, not clinically validated).",
-        "predicted_grade": cnn_binary_result["predicted_grade"] if cnn_binary_result else -1,
-        "prediction_label": cnn_binary_result["binary_label"] if cnn_binary_result else "Cannot Screen",
-        "confidence_pct": cnn_binary_result["confidence_pct"] if cnn_binary_result else 0.0,
-        "any_dr_probability_pct": cnn_binary_result["any_dr_probability_pct"] if cnn_binary_result else 0.0,
-        "class_probabilities": cnn_binary_result["class_probabilities"] if cnn_binary_result else {},
-        "cnn_on_iris_note": cnn_binary_result["note"] if cnn_binary_result else "",
+        "model_name": "OpenCV Iris Segmentation & CV Feature Extractor (Non-Diagnostic)",
+        "diabetes_detected": None,
+        "binary_label": None,
+        "binary_color": "info",
+        "severity_tier": "Not Applicable (Iris Photo)",
+        "severity_description": (
+            "External iris segmented & quality-verified. Upload a retinal fundus scan to screen for diabetic retinopathy, "
+            "or use the Pima Tabular Clinical Screening form below for metabolic diabetes risk."
+        ),
+        "predicted_grade": None,
+        "prediction_label": "External Iris Segmented (Retinal Fundus Scan Required for DR Screening)",
+        "confidence_pct": quality["quality_score"],
+        "class_probabilities": {},
         "iris_detected": iris_res["iris_detected"],
         "segmentation_completed": iris_res["segmentation_completed"],
         "iris_analysis": iris_res,

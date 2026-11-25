@@ -37,7 +37,7 @@ from torch.utils.data import DataLoader
 
 from src.eye_analysis.dataset_prep import DR_CLASS_NAMES, RETINAL_DIR, ROOT_DIR
 from src.eye_analysis.preprocessing import get_eval_transforms
-from src.eye_analysis.train_retinal import RetinalFundusDataset, build_backbone_model
+from src.eye_analysis.train_retinal import RetinalFundusDataset, build_backbone_model, predict_batch_tta
 
 MODELS_DIR = os.path.join(ROOT_DIR, "models")
 
@@ -125,6 +125,8 @@ def evaluate_retinal_model(
     arch = ckpt["arch"]
     image_size = int(ckpt.get("image_size", 224))
     apply_clahe = bool(ckpt.get("apply_clahe", True))
+    any_dr_threshold = float(ckpt.get("any_dr_threshold", 0.50))
+    use_tta = bool(ckpt.get("use_tta", True))
 
     model = build_backbone_model(arch=arch, num_classes=5, pretrained=False)
     model.load_state_dict(ckpt["state_dict"])
@@ -144,11 +146,18 @@ def evaluate_retinal_model(
 
     with torch.no_grad():
         for x_batch, y_batch in test_loader:
-            logits = model(x_batch)
-            probs = torch.softmax(logits, dim=1)
-            preds = torch.argmax(probs, dim=1)
-            all_probs.append(probs.numpy())
-            all_preds.extend(preds.numpy().tolist())
+            probs = predict_batch_tta(model, x_batch) if use_tta else torch.softmax(model(x_batch), dim=1)
+            probs_np = probs.numpy()
+            for row_p in probs_np:
+                p_any = float(np.sum(row_p[1:]))
+                if p_any >= any_dr_threshold:
+                    pred_cls = int(np.argmax(row_p))
+                    if pred_cls == 0:
+                        pred_cls = int(1 + np.argmax(row_p[1:]))
+                else:
+                    pred_cls = 0
+                all_preds.append(pred_cls)
+            all_probs.append(probs_np)
             all_targets.extend(y_batch.numpy().tolist())
 
     y_true = np.array(all_targets, dtype=int)
@@ -226,6 +235,8 @@ def evaluate_retinal_model(
         "evaluated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "backbone_architecture": arch,
         "best_epoch": int(ckpt.get("best_epoch", 0)),
+        "any_dr_threshold": round(any_dr_threshold, 3),
+        "test_time_augmentation": use_tta,
         "test_samples": int(len(y_true)),
         "overall_metrics": {
             "accuracy": round(acc, 4),

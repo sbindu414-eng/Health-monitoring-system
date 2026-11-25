@@ -80,13 +80,11 @@ class TestEyeAnalysisModule(unittest.TestCase):
         self.assertTrue(res["valid_eye_image"])
         self.assertEqual(res["detected_modality"], "anterior_iris")
         self.assertEqual(res["status"], "completed")
-        # Must have binary diabetes result from CNN
-        self.assertIn("diabetes_detected", res)
-        self.assertIn("binary_label", res)
+        self.assertTrue(res["iris_detected"])
+        self.assertIsNone(res["diabetes_detected"])
+        self.assertEqual(res["class_probabilities"], {})
         self.assertIn("Blood glucose cannot be measured from this image", res["glucose_statement"])
-        # segmentation overlay should be present for anterior_iris
-        overlay = res.get("segmentation_overlay_image") or (res.get("iris_analysis") or {}).get("segmentation_overlay_image", "")
-        self.assertTrue(overlay.startswith("data:image/png;base64,"))
+        self.assertTrue(res["segmentation_overlay_image"].startswith("data:image/png;base64,"))
 
     def test_blurry_image_rejected(self):
         # Smooth blurred eye-like target -> low Laplacian variance should trigger quality rejection
@@ -99,21 +97,29 @@ class TestEyeAnalysisModule(unittest.TestCase):
         self.assertFalse(res["quality"]["is_acceptable"])
 
     def test_real_test_fundus_sample_prediction(self):
-        sample_path = os.path.join(ROOT_DIR, "data", "samples", "sample_test_grade0_no_diabetic_retinopathy.png")
-        self.assertTrue(os.path.exists(sample_path), "Held-out sample fundus image missing")
-        with open(sample_path, "rb") as f:
-            b = f.read()
-        res = analyze_uploaded_eye_image(b, os.path.basename(sample_path), analysis_mode="auto")
-        self.assertEqual(res["detected_modality"], "retinal_fundus")
-        self.assertEqual(res["status"], "completed")
-        # prediction_label now shows "DR Severity: <grade>" — check it contains the grade or binary result
-        self.assertTrue(
-            "DR Severity:" in res["prediction_label"] or
-            "Predicted diabetic retinopathy" in res["prediction_label"] or
-            "DIABETIC" in res.get("binary_label", "")
-        )
-        self.assertEqual(len(res["class_probabilities"]), 5)
-        self.assertIn("Blood glucose cannot be measured", res["glucose_statement"])
+        # Healthy Grade 0 held-out retinal fundus must NOT be flagged diabetic
+        healthy_path = os.path.join(ROOT_DIR, "data", "samples", "sample_test_grade0_no_diabetic_retinopathy.png")
+        self.assertTrue(os.path.exists(healthy_path), "Held-out sample healthy fundus image missing")
+        with open(healthy_path, "rb") as f:
+            b0 = f.read()
+        res0 = analyze_uploaded_eye_image(b0, os.path.basename(healthy_path), analysis_mode="auto")
+        self.assertEqual(res0["detected_modality"], "retinal_fundus")
+        self.assertEqual(res0["status"], "completed")
+        self.assertIn("Predicted diabetic retinopathy severity:", res0["prediction_label"])
+        self.assertFalse(res0["diabetes_detected"])
+        self.assertEqual(len(res0["class_probabilities"]), 5)
+        self.assertIn("Blood glucose cannot be measured", res0["glucose_statement"])
+
+        # Diabetic Grade 4 held-out retinal fundus MUST be detected as diabetic retinopathy
+        dr_path = os.path.join(ROOT_DIR, "data", "samples", "sample_test_grade4_proliferative_diabetic_retinopathy.png")
+        self.assertTrue(os.path.exists(dr_path), "Held-out sample DR fundus image missing")
+        with open(dr_path, "rb") as f:
+            b4 = f.read()
+        res4 = analyze_uploaded_eye_image(b4, os.path.basename(dr_path), analysis_mode="auto")
+        self.assertEqual(res4["detected_modality"], "retinal_fundus")
+        self.assertEqual(res4["status"], "completed")
+        self.assertTrue(res4["diabetes_detected"])
+        self.assertGreaterEqual(res4["predicted_grade"], 1)
 
     def test_tabular_pima_prediction(self):
         res = predict_tabular_diabetes({
