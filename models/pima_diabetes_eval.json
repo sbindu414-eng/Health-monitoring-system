@@ -1,0 +1,53 @@
+{
+  "dataset": "Pima Indians Diabetes Database",
+  "source": "https://www.kaggle.com/datasets/uciml/pima-indians-diabetes-database",
+  "trained_at": "2026-11-25 12:17:36",
+  "selected_model": "LogisticRegression",
+  "feature_names": [
+    "Pregnancies",
+    "Glucose",
+    "BloodPressure",
+    "SkinThickness",
+    "Insulin",
+    "BMI",
+    "DiabetesPedigreeFunction",
+    "Age"
+  ],
+  "train_samples": 614,
+  "test_samples": 154,
+  "cv_model_comparison": {
+    "LogisticRegression": {
+      "cv_roc_auc_mean": 0.8444,
+      "cv_roc_auc_std": 0.0161
+    },
+    "RandomForest": {
+      "cv_roc_auc_mean": 0.8374,
+      "cv_roc_auc_std": 0.0231
+    },
+    "GradientBoosting": {
+      "cv_roc_auc_mean": 0.8229,
+      "cv_roc_auc_std": 0.0171
+    }
+  },
+  "test_metrics": {
+    "accuracy": 0.7338,
+    "precision": 0.6032,
+    "recall_sensitivity": 0.7037,
+    "specificity": 0.75,
+    "f1_score": 0.6496,
+    "roc_auc": 0.8126,
+    "confusion_matrix": [
+      [
+        75,
+        25
+      ],
+      [
+        16,
+        38
+      ]
+    ],
+    "false_negatives": 16,
+    "false_positives": 25
+  },
+  "note": "Tabular clinical risk screening ONLY (requires Fasting/OGTT Glucose, BMI, Age, etc.). Completely separate from eye/iris/retinal image analysis."
+}

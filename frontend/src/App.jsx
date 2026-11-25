@@ -7,6 +7,7 @@ import DiseaseTab from './components/DiseaseTab';
 import EcgTab from './components/EcgTab';
 import FitnessTab from './components/FitnessTab';
 import RiskTab from './components/RiskTab';
+import EyeAnalysisTab from './components/EyeAnalysisTab';
 import Login from './components/Login';
 
 import { DietModule } from './modules/dietModule';
@@ -329,6 +330,10 @@ export default function App() {
                         onRunRisk={handleRunRisk}
                         isRunning={isScanning}
                     />
+                )}
+
+                {activeTab === 'eye' && (
+                    <EyeAnalysisTab session={session} />
                 )}
             </main>
         </div>

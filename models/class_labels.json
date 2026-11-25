@@ -1,0 +1,15 @@
+{
+  "labels": {
+    "0": "No diabetic retinopathy",
+    "1": "Mild",
+    "2": "Moderate",
+    "3": "Severe",
+    "4": "Proliferative diabetic retinopathy"
+  },
+  "clinical_scale": "International Clinical Diabetic Retinopathy (ICDR) Severity Scale",
+  "referable_dr_grades": [
+    2,
+    3,
+    4
+  ]
+}

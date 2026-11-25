@@ -5,17 +5,45 @@ plus a live streaming real-time biomedical telemetry engine.
 """
 
 import os
+import sys
 import json
 import time
 import math
 import random
+import base64
 import mimetypes
+from email.parser import BytesParser
+from email.policy import default as email_default_policy
+from urllib.parse import urlparse, parse_qs, unquote
 import numpy as np
 import joblib
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
 MODELS_DIR = os.path.join(os.path.dirname(__file__), 'trained_models')
+EYE_MODELS_DIR = os.path.join(ROOT_DIR, 'models')
+SAMPLES_DIR = os.path.join(ROOT_DIR, 'data', 'samples')
+
+from backend.database import (
+    clear_eye_history,
+    delete_eye_prediction,
+    get_diabetes_history,
+    get_eye_history,
+    init_db,
+    save_diabetes_prediction,
+    save_eye_prediction,
+)
+from src.eye_analysis.predict import (
+    analyze_uploaded_eye_image,
+    get_eye_module_status,
+    load_pima_bundle,
+    load_retinal_bundle,
+    predict_tabular_diabetes,
+)
+from src.eye_analysis.preprocessing import MAX_UPLOAD_BYTES
 
 # Load Trained Scikit-Learn ML Models
 DIET_MACRO_MODEL = None
@@ -58,32 +86,109 @@ DISEASE_CLASSES = [
 
 ECG_CLASSES = ["NSR", "AF", "STEMI", "LBBB", "RBBB", "AVB"]
 
+def _parse_multipart_form(content_type: str, raw_bytes: bytes):
+    """Parse multipart/form-data safely using Python 3.13 stdlib email BytesParser."""
+    header_prefix = f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("latin-1")
+    msg = BytesParser(policy=email_default_policy).parsebytes(header_prefix + raw_bytes)
+    fields = {}
+    files = {}
+    if msg.is_multipart():
+        for part in msg.iter_parts():
+            disp = part.get("Content-Disposition", "")
+            if not disp:
+                continue
+            name = part.get_param("name", header="Content-Disposition")
+            filename = part.get_filename()
+            payload = part.get_payload(decode=True) or b""
+            if filename:
+                files[name or "image"] = {"filename": filename, "bytes": payload}
+            elif name:
+                fields[name] = payload.decode("utf-8", errors="replace")
+    return fields, files
+
+
+def _safe_join(base_dir: str, rel_name: str):
+    """Join path safely and verify strict containment within base_dir."""
+    clean_name = unquote(rel_name).lstrip("/\\")
+    base_real = os.path.realpath(base_dir)
+    target_real = os.path.realpath(os.path.join(base_real, clean_name))
+    if target_real != base_real and not target_real.startswith(base_real + os.sep):
+        return None
+    return target_real
+
+
 class HealthMLAPIHandler(BaseHTTPRequestHandler):
     def _set_headers(self, status=200, content_type='application/json'):
         self.send_response(status)
         self.send_header('Content-type', content_type)
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
+
+    def _send_json(self, status: int, payload: dict):
+        self._set_headers(status)
+        self.wfile.write(json.dumps(payload).encode('utf-8'))
+
+    def _serve_file(self, file_path: str):
+        if not file_path or not os.path.isfile(file_path):
+            self._send_json(404, {"error": "File not found"})
+            return
+        mime, _ = mimetypes.guess_type(file_path)
+        if not mime:
+            if file_path.endswith('.js'):
+                mime = 'application/javascript'
+            elif file_path.endswith('.css'):
+                mime = 'text/css'
+            elif file_path.endswith('.html'):
+                mime = 'text/html; charset=utf-8'
+            else:
+                mime = 'application/octet-stream'
+        self._set_headers(200, content_type=mime)
+        with open(file_path, 'rb') as f:
+            self.wfile.write(f.read())
 
     def do_OPTIONS(self):
         self._set_headers(200)
 
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path == '/api/eye/history':
+            deleted = clear_eye_history()
+            self._send_json(200, {"status": "CLEARED", "deleted_count": deleted})
+        elif path.startswith('/api/eye/history/'):
+            rec_id_str = path.split('/')[-1]
+            try:
+                rec_id = int(rec_id_str)
+            except ValueError:
+                self._send_json(400, {"error": "Invalid prediction record ID"})
+                return
+            ok = delete_eye_prediction(rec_id)
+            if ok:
+                self._send_json(200, {"status": "DELETED", "id": rec_id})
+            else:
+                self._send_json(404, {"error": "Prediction record not found"})
+        else:
+            self._send_json(404, {"error": "Endpoint not found"})
+
     def do_GET(self):
-        if self.path == '/api/health':
-            self._set_headers(200)
-            self.wfile.write(json.dumps({
+        parsed = urlparse(self.path)
+        path = parsed.path
+        query = parse_qs(parsed.query)
+
+        if path == '/api/health':
+            self._send_json(200, {
                 "status": "ONLINE",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "framework": "Modular ML Health Monitoring Framework",
-                "modules": 5
-            }).encode('utf-8'))
-        elif self.path == '/api/models/status':
-            self._set_headers(200)
+                "modules": 6
+            })
+        elif path == '/api/models/status':
+            eye_status = get_eye_module_status()
             status_data = {
                 "modelsStatus": "TRAINED_AND_ACTIVE",
-                "trainingFramework": "Scikit-Learn 1.9.1",
+                "trainingFramework": "Scikit-Learn + PyTorch",
                 "modelsLoaded": all([
                     DIET_MACRO_MODEL is not None,
                     DISEASE_MODEL is not None,
@@ -91,52 +196,181 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
                     FITNESS_MODEL is not None,
                     RISK_MODEL is not None
                 ]),
+                "eyeAnalysis": eye_status,
                 "metadata": MODEL_METADATA
             }
-            self.wfile.write(json.dumps(status_data).encode('utf-8'))
-        
-        elif self.path.startswith('/api/'):
-            self._set_headers(404)
-            self.wfile.write(json.dumps({"error": "Endpoint not found"}).encode('utf-8'))
+            self._send_json(200, status_data)
+        elif path == '/api/eye/status':
+            samples = []
+            if os.path.isdir(SAMPLES_DIR):
+                samples = sorted([f for f in os.listdir(SAMPLES_DIR) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+            status_payload = get_eye_module_status()
+            status_payload["sample_images"] = samples
+            status_payload["max_upload_mb"] = MAX_UPLOAD_BYTES // (1024 * 1024)
+            self._send_json(200, status_payload)
+        elif path == '/api/eye/history':
+            limit = int(query.get('limit', ['30'])[0])
+            self._send_json(200, {
+                "eye_history": get_eye_history(limit=limit),
+                "diabetes_history": get_diabetes_history(limit=limit)
+            })
+        elif path.startswith('/api/eye/samples/'):
+            fname = path[len('/api/eye/samples/'):]
+            sample_path = _safe_join(SAMPLES_DIR, fname)
+            self._serve_file(sample_path)
+        elif path.startswith('/api/eye/plots/'):
+            fname = path[len('/api/eye/plots/'):]
+            if fname not in ('confusion_matrix.png', 'roc_curves.png', 'training_history.png'):
+                self._send_json(404, {"error": "Plot not found"})
+                return
+            plot_path = _safe_join(EYE_MODELS_DIR, fname)
+            self._serve_file(plot_path)
+        elif path.startswith('/api/'):
+            self._send_json(404, {"error": "Endpoint not found"})
         else:
             # Serve static files from React build frontend/dist
-            req_path = self.path.split('?')[0].lstrip('/')
             dist_dir = os.path.abspath(os.path.join(ROOT_DIR, 'frontend', 'dist'))
-            file_path = os.path.abspath(os.path.join(dist_dir, req_path)) if req_path else os.path.join(dist_dir, 'index.html')
-
-            if not os.path.isfile(file_path):
+            req_path = path.lstrip('/')
+            file_path = _safe_join(dist_dir, req_path) if req_path else os.path.join(dist_dir, 'index.html')
+            if not file_path or not os.path.isfile(file_path):
                 spa_index = os.path.join(dist_dir, 'index.html')
-                if os.path.isfile(spa_index):
-                    file_path = spa_index
-
-            if os.path.isfile(file_path):
-                mime, _ = mimetypes.guess_type(file_path)
-                if not mime:
-                    if file_path.endswith('.js'):
-                        mime = 'application/javascript'
-                    elif file_path.endswith('.css'):
-                        mime = 'text/css'
-                    elif file_path.endswith('.html'):
-                        mime = 'text/html; charset=utf-8'
-                    else:
-                        mime = 'application/octet-stream'
-                self._set_headers(200, content_type=mime)
-                with open(file_path, 'rb') as f:
-                    self.wfile.write(f.read())
-            else:
-                self._set_headers(404)
-                self.wfile.write(json.dumps({"error": "File not found"}).encode('utf-8'))
+                file_path = spa_index if os.path.isfile(spa_index) else None
+            self._serve_file(file_path)
 
     def do_POST(self):
-        content_length = int(self.headers.get('Content-Length', 0))
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+        except ValueError:
+            content_length = 0
+
+        # Reject oversized payloads before reading into memory (allow slight multipart overhead above 10MB)
+        max_http_bytes = MAX_UPLOAD_BYTES + 2 * 1024 * 1024
+        if content_length > max_http_bytes:
+            self._send_json(413, {
+                "error": f"Payload size exceeds maximum allowed limit of {MAX_UPLOAD_BYTES // (1024 * 1024)} MB."
+            })
+            return
+
         post_data = self.rfile.read(content_length) if content_length > 0 else b'{}'
-        
+        content_type = self.headers.get('Content-Type', '')
+
+        if path == '/api/eye/analyze':
+            try:
+                file_bytes = None
+                filename = 'upload.png'
+                analysis_mode = 'auto'
+                user_role = 'Clinician'
+
+                if 'multipart/form-data' in content_type.lower():
+                    fields, files = _parse_multipart_form(content_type, post_data)
+                    analysis_mode = fields.get('mode', 'auto')
+                    user_role = fields.get('userRole', 'Clinician')
+                    if 'image' in files:
+                        file_bytes = files['image']['bytes']
+                        filename = files['image']['filename']
+                    elif files:
+                        first_file = next(iter(files.values()))
+                        file_bytes = first_file['bytes']
+                        filename = first_file['filename']
+                    elif fields.get('sampleName'):
+                        sample_path = _safe_join(SAMPLES_DIR, fields['sampleName'])
+                        if not sample_path or not os.path.isfile(sample_path):
+                            self._send_json(404, {"error": "Requested test sample image not found."})
+                            return
+                        filename = os.path.basename(sample_path)
+                        with open(sample_path, 'rb') as sf:
+                            file_bytes = sf.read()
+                else:
+                    body = json.loads(post_data.decode('utf-8')) if post_data else {}
+                    analysis_mode = body.get('mode', 'auto')
+                    user_role = body.get('userRole', 'Clinician')
+                    if body.get('imageBase64'):
+                        b64_str = body['imageBase64']
+                        if ',' in b64_str:
+                            b64_str = b64_str.split(',', 1)[1]
+                        file_bytes = base64.b64decode(b64_str)
+                        filename = body.get('filename', 'upload.png')
+                    elif body.get('sampleName'):
+                        sample_path = _safe_join(SAMPLES_DIR, body['sampleName'])
+                        if not sample_path or not os.path.isfile(sample_path):
+                            self._send_json(404, {"error": "Requested test sample image not found."})
+                            return
+                        filename = os.path.basename(sample_path)
+                        with open(sample_path, 'rb') as sf:
+                            file_bytes = sf.read()
+
+                if not file_bytes:
+                    self._send_json(400, {"error": "No eye image file provided in request."})
+                    return
+
+                result = analyze_uploaded_eye_image(
+                    file_bytes=file_bytes,
+                    filename=filename,
+                    analysis_mode=analysis_mode,
+                )
+
+                qual = result.get("quality", {})
+                fmeta = result.get("file_meta", {})
+                history_id = save_eye_prediction({
+                    "filename": fmeta.get("filename", filename),
+                    "file_size_bytes": fmeta.get("file_size_bytes", len(file_bytes)),
+                    "image_width": fmeta.get("width"),
+                    "image_height": fmeta.get("height"),
+                    "analysis_mode": analysis_mode,
+                    "detected_modality": result.get("detected_modality", "rejected"),
+                    "quality_status": qual.get("status", "unknown"),
+                    "quality_score": qual.get("quality_score"),
+                    "sharpness_score": qual.get("sharpness_laplacian_var"),
+                    "brightness_score": qual.get("mean_brightness"),
+                    "prediction_label": result.get("prediction_label", "Unknown"),
+                    "confidence_pct": result.get("confidence_pct"),
+                    "class_probabilities": result.get("class_probabilities", {}),
+                    "extracted_features": result.get("extracted_features", {}),
+                    "model_name": result.get("model_name", ""),
+                    "disclaimer": result.get("disclaimer", ""),
+                    "user_role": user_role,
+                })
+                result["historyId"] = history_id
+                self._send_json(200, result)
+            except ValueError as ve:
+                self._send_json(400, {"error": str(ve), "status": "invalid_image"})
+            except Exception as exc:
+                self._send_json(500, {"error": f"Failed to analyze image: {exc}", "status": "error"})
+            return
+
         try:
             body = json.loads(post_data.decode('utf-8'))
         except Exception:
             body = {}
 
-        if self.path == '/api/auth/login':
+        if path == '/api/diabetes/predict':
+            res = predict_tabular_diabetes(body)
+            if res.get("status") == "completed":
+                inputs = res.get("inputs", {})
+                rec_id = save_diabetes_prediction({
+                    "pregnancies": inputs.get("Pregnancies"),
+                    "glucose": inputs.get("Glucose"),
+                    "blood_pressure": inputs.get("BloodPressure"),
+                    "skin_thickness": inputs.get("SkinThickness"),
+                    "insulin": inputs.get("Insulin"),
+                    "bmi": inputs.get("BMI"),
+                    "dpf": inputs.get("DiabetesPedigreeFunction"),
+                    "age": inputs.get("Age"),
+                    "prediction_label": res["prediction_label"],
+                    "probability_pct": res["probability_pct"],
+                    "risk_tier": res["risk_tier"],
+                    "model_name": res["model_name"],
+                })
+                res["historyId"] = rec_id
+                self._send_json(200, res)
+            else:
+                self._send_json(503, res)
+            return
+
+        if path == '/api/auth/login':
             self._set_headers(200)
             username = body.get('username', '').lower()
             res = {
@@ -152,7 +386,7 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(res).encode('utf-8'))
             return
 
-        elif self.path == '/api/predict/diet':
+        elif path == '/api/predict/diet':
             self._set_headers(200)
             weight = float(body.get('weight', 70))
             height = float(body.get('height', 170))
@@ -206,7 +440,7 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
             }
             self.wfile.write(json.dumps(res).encode('utf-8'))
 
-        elif self.path == '/api/predict/disease':
+        elif path == '/api/predict/disease':
             self._set_headers(200)
             symptoms = body.get('symptoms', [])
             duration = float(body.get('durationDays', 3))
@@ -284,7 +518,7 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
             }
             self.wfile.write(json.dumps(res).encode('utf-8'))
 
-        elif self.path == '/api/predict/ecg':
+        elif path == '/api/predict/ecg':
             self._set_headers(200)
             cond = body.get('condition', 'NSR')
             hr = float(body.get('heartRate', 72))
@@ -325,7 +559,7 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
             }
             self.wfile.write(json.dumps(res).encode('utf-8'))
 
-        elif self.path == '/api/predict/fitness':
+        elif path == '/api/predict/fitness':
             self._set_headers(200)
             age = float(body.get('age', 35))
             rhr = float(body.get('restingHeartRate', 68))
@@ -355,7 +589,7 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
             }
             self.wfile.write(json.dumps(res).encode('utf-8'))
 
-        elif self.path == '/api/predict/risk':
+        elif path == '/api/predict/risk':
             self._set_headers(200)
             diet_score = float(body.get('dietScore', 78))
             disease_prob = float(body.get('diseaseProbability', 0.15))
@@ -398,6 +632,9 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
 
 def run(default_port=5000):
     import sys
+    init_db()
+    load_retinal_bundle()
+    load_pima_bundle()
     port = int(os.environ.get('PORT', sys.argv[1] if len(sys.argv) > 1 else default_port))
     for p in [port, 5001, 5002, 8080]:
         try:

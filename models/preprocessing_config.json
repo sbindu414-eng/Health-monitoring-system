@@ -1,0 +1,28 @@
+{
+  "image_size": 224,
+  "color_space": "RGB",
+  "crop_black_borders": true,
+  "apply_clahe": true,
+  "clahe_clip_limit": 2.0,
+  "clahe_tile_grid_size": [
+    8,
+    8
+  ],
+  "normalization_mean": [
+    0.485,
+    0.456,
+    0.406
+  ],
+  "normalization_std": [
+    0.229,
+    0.224,
+    0.225
+  ],
+  "train_augmentations": [
+    "RandomHorizontalFlip(p=0.5)",
+    "RandomVerticalFlip(p=0.5)",
+    "RandomRotation(degrees=20)",
+    "ColorJitter(brightness=0.12, contrast=0.12, saturation=0.10, hue=0.02)"
+  ],
+  "backbone_architecture": "mobilenet_v3_small"
+}

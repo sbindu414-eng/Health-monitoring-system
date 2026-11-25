@@ -171,6 +171,70 @@ export const api = {
             // Fallback to client ML
         }
         return RiskModule.predict(aggregatedData);
+    },
+
+    async getEyeStatus() {
+        const res = await fetch(`${API_BASE}/eye/status`, { signal: AbortSignal.timeout(5000) });
+        if (!res.ok) throw new Error('Unable to fetch eye analysis model status');
+        return await res.json();
+    },
+
+    async analyzeEyeImage({ file, sampleName, mode = 'auto', userRole = 'Clinician' }) {
+        const formData = new FormData();
+        formData.append('mode', mode);
+        formData.append('userRole', userRole);
+        if (file) {
+            formData.append('image', file);
+        } else if (sampleName) {
+            formData.append('sampleName', sampleName);
+        }
+
+        const res = await fetch(`${API_BASE}/eye/analyze`, {
+            method: 'POST',
+            body: formData,
+            signal: AbortSignal.timeout(30000)
+        });
+        const json = await res.json();
+        if (!res.ok) {
+            throw new Error(json.error || 'Eye image analysis request failed');
+        }
+        return json;
+    },
+
+    async getEyeHistory(limit = 30) {
+        const res = await fetch(`${API_BASE}/eye/history?limit=${limit}`, { signal: AbortSignal.timeout(5000) });
+        if (!res.ok) throw new Error('Unable to load prediction history');
+        return await res.json();
+    },
+
+    async deleteEyeHistoryItem(id) {
+        const res = await fetch(`${API_BASE}/eye/history/${id}`, {
+            method: 'DELETE',
+            signal: AbortSignal.timeout(5000)
+        });
+        if (!res.ok) throw new Error('Failed to delete prediction record');
+        return await res.json();
+    },
+
+    async clearEyeHistory() {
+        const res = await fetch(`${API_BASE}/eye/history`, {
+            method: 'DELETE',
+            signal: AbortSignal.timeout(5000)
+        });
+        if (!res.ok) throw new Error('Failed to clear prediction history');
+        return await res.json();
+    },
+
+    async predictTabularDiabetes(payload) {
+        const res = await fetch(`${API_BASE}/diabetes/predict`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(10000)
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.message || json.error || 'Tabular diabetes inference failed');
+        return json;
     }
 };
 

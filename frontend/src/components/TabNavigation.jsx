@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Salad, Stethoscope, HeartPulse, Dumbbell, ShieldAlert } from 'lucide-react';
+import { Home, Salad, Stethoscope, HeartPulse, Dumbbell, ShieldAlert, Eye } from 'lucide-react';
 
 const tabs = [
     { id: 'overview', label: 'Overview & Flow', icon: Home, badge: 'Pipeline' },
@@ -7,7 +7,8 @@ const tabs = [
     { id: 'disease', label: 'Disease Diagnosis', icon: Stethoscope, badge: 'LogReg 86.7%' },
     { id: 'ecg', label: 'ECG Classification', icon: HeartPulse, badge: 'Ensemble 93.5%' },
     { id: 'fitness', label: 'Fitness Estimation', icon: Dumbbell, badge: 'LinReg R² 0.82' },
-    { id: 'risk', label: 'Integrated Risk', icon: ShieldAlert, badge: 'XGBoost 91.3%' }
+    { id: 'risk', label: 'Integrated Risk', icon: ShieldAlert, badge: 'XGBoost 91.3%' },
+    { id: 'eye', label: 'AI Eye Image Analysis', icon: Eye, badge: 'CNN + CV' }
 ];
 
 export default function TabNavigation({ activeTab, onSelectTab }) {

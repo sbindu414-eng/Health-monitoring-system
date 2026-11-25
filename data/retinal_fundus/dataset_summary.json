@@ -1,0 +1,50 @@
+{
+  "dataset": "RetinaMNIST (224x224 RGB from DeepDRiD Benchmark, MedMNIST v2)",
+  "license": "CC BY 4.0",
+  "source_url": "https://huggingface.co/datasets/danjacobellis/retinamnist_224",
+  "origin_zenodo": "https://zenodo.org/records/10519652",
+  "kaggle_references": [
+    "https://www.kaggle.com/competitions/aptos2019-blindness-detection/data",
+    "https://www.kaggle.com/competitions/diabetic-retinopathy-detection/data"
+  ],
+  "note": "Kaggle APTOS 2019 & EyePACS require authenticated Kaggle API tokens and competition acceptance. DeepDRiD/RetinaMNIST provides real clinical 224x224 fundus photographs under the exact same 5-grade ICDR diabetic retinopathy scale with strict patient-level train/val/test separation.",
+  "splits": {
+    "train": 1080,
+    "val": 113,
+    "test": 365
+  },
+  "total_images": 1558,
+  "corrupted_rejected": 0,
+  "exact_duplicates_removed": 0,
+  "cross_split_near_duplicates_removed": 42,
+  "class_names": {
+    "0": "No diabetic retinopathy",
+    "1": "Mild",
+    "2": "Moderate",
+    "3": "Severe",
+    "4": "Proliferative diabetic retinopathy"
+  },
+  "class_distribution": {
+    "train": {
+      "No diabetic retinopathy": 486,
+      "Proliferative diabetic retinopathy": 66,
+      "Severe": 194,
+      "Moderate": 206,
+      "Mild": 128
+    },
+    "val": {
+      "No diabetic retinopathy": 51,
+      "Moderate": 25,
+      "Mild": 12,
+      "Severe": 19,
+      "Proliferative diabetic retinopathy": 6
+    },
+    "test": {
+      "Moderate": 88,
+      "Mild": 39,
+      "No diabetic retinopathy": 154,
+      "Severe": 64,
+      "Proliferative diabetic retinopathy": 20
+    }
+  }
+}

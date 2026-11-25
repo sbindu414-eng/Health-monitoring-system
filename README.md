@@ -1,259 +1,194 @@
-# Modular ML Framework for Personalized Health Monitoring & Risk Prediction
+# Modular ML Framework for Personalized Health Monitoring & AI Eye Screening
 
-[![React](https://img.shields.io/badge/React-19.0-61dafb.svg)](https://react.dev/)
-[![Vite](https://img.shields.io/badge/Vite-8.0-646cff.svg)](https://vitejs.dev/)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![TailwindCSS](https://img.shields.io/badge/TailwindCSS-v3.0-38bdf8.svg)](https://tailwindcss.com/)
+[![React](https://img.shields.io/badge/React-19.3-61dafb.svg)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-8.3-646cff.svg)](https://vitejs.dev/)
+[![Python](https://img.shields.io/badge/Python-3.13-blue.svg)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.15%20CPU-ee4c2c.svg)](https://pytorch.org/)
+[![OpenCV](https://img.shields.io/badge/OpenCV-5.1-5C3EE8.svg)](https://opencv.org/)
 [![License](https://img.shields.io/badge/License-ISC-green.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Operational-brightgreen.svg)]()
 
-> A multi-domain, modular machine learning architecture engineered to address healthcare fragmentation by integrating dietary analysis, symptom diagnosis, 12-lead ECG signal classification, fitness tracking, and comprehensive health risk stratification into a unified, interactive clinical decision dashboard built with **React** and **Python**.
-
----
-
-## 📌 Table of Contents
-
-- [Overview](#-overview)
-- [Real-Time Autonomous Telemetry Framework](#-real-time-autonomous-telemetry-framework)
-- [System Architecture & Methodology](#-system-architecture--methodology)
-- [Live Biosensors & Hardware Ingestion](#-live-biosensors--hardware-ingestion)
-- [Machine Learning Modules](#-machine-learning-modules)
-- [React Application Structure](#-react-application-structure)
-- [Key Features](#-key-features)
-- [Evaluation & Presentation Guide for Judges](#-evaluation--presentation-guide-for-judges)
-- [Getting Started](#-getting-started)
-  - [Prerequisites](#prerequisites)
-  - [One-Click Startup](#one-click-startup)
-  - [Manual Execution](#manual-execution)
-- [Patient Presets](#-patient-presets)
-- [Backend REST API Specification](#-backend-rest-api-specification)
-- [Technologies Used](#-technologies-used)
-- [License](#-license)
+> A multi-domain machine learning clinical decision support dashboard built with **React**, **Python**, **Scikit-Learn**, **PyTorch**, **OpenCV**, and **SQLite**, integrating nutritional diet planning, symptom pathology diagnosis, 12-lead ECG classification, physical fitness estimation, composite risk stratification, and **AI Eye Image Analysis & Diabetes Screening**.
 
 ---
 
-## 🔬 Overview
+## Modules Overview
 
-Traditional digital health solutions operate in silos—fitness trackers analyze steps, dietary apps log calories, and clinical tools monitor ECGs independently. This fragmentation prevents holistic risk prediction and delays preventive interventions.
-
-This project implements a **Modular Machine Learning Health Monitoring Framework** composed of five specialized domain modules that feed into an integrated risk stratification engine:
-
-1. **Diet Suggestion Module** &rarr; Evaluates nutritional intake, BMI, and TDEE via Random Forest Classifier.
-2. **Disease Diagnosis Module** &rarr; Maps multi-symptom vectors to acute and chronic pathologies via Multiclass Logistic Regression.
-3. **ECG Classification Ensemble** &rarr; Detects arrhythmias and ischemic patterns via Soft-Voting Ensemble (RF + XGBoost + LightGBM + GradBoost).
-4. **Physical Fitness Estimation Module** &rarr; Computes composite fitness score using feature interaction regression.
-5. **Integrated Health Risk Stratification** &rarr; Synthesizes cross-domain metrics to generate calibrated risk probabilities and clinical recommendations via XGBoost.
-
----
-
-## ⚡ Real-Time Autonomous Telemetry Framework
-
-To eliminate manual input reliance and satisfy real-time clinical monitoring benchmarks, this project features an **Autonomous Streaming Telemetry Pipeline**:
-
-- **Zero-Input Operation**: The system continuously acquires patient biomarkers without requiring any keyboard or form input.
-- **Sliding-Window Inference Engine**: Every 1.2 seconds, a high-frequency packet is dispatched to all 5 ML models in parallel, maintaining live calibrated risk stratification.
-- **Real-Time Heads-Up Ticker**: An always-visible telemetry HUD at the top displays packet sequence ID, stream latency (~16ms), live BPM, SpO2, blood pressure, respiration rate, and real-time emergency triage badges.
-- **Dynamic Scenario Switching**: Live simulation presets for *Normal Resting*, *Endurance Athlete*, *High-Intensity Exercise*, *Atrial Fibrillation*, *Acute STEMI*, and *Hypoxia*.
+1. **Diet Suggestion Module** — Random Forest Classifier & Regressor for BMI, TDEE, and macronutrient planning.
+2. **Disease Diagnosis Module** — Multiclass Logistic Regression across 17 clinical symptom indicators.
+3. **12-Lead ECG Classification Module** — Soft-Voting Ensemble (`RF + GradientBoosting + LogisticRegression`) with HTML5 Canvas ECG sweep preview.
+4. **Fitness Estimation Module** — Interaction Ridge Regression estimating continuous fitness score (0–100) and VO2 max.
+5. **Integrated Risk Stratification** — Gradient Boosted Decision Trees synthesizing cross-domain risk scores.
+6. **AI Eye Image Analysis & Diabetes Screening** *(New)*:
+   - **Retinal Fundus Diabetic Retinopathy Grading (CNN):** Deep learning transfer learning (`MobileNetV3-Small`) trained on patient-disjoint clinical fundus photographs across the 5-grade ICDR scale (`0: No DR`, `1: Mild`, `2: Moderate`, `3: Severe`, `4: Proliferative DR`).
+   - **Anterior Eye / Iris Computer Vision Pipeline (Experimental):** OpenCV eye detection (`haarcascade_eye.xml`), pupil localization, concentric Hough iris boundary detection, eyelid/glare masking, sharpness/exposure quality rejection, and feature extraction. **Explicitly non-diagnostic for diabetes/glucose.**
+   - **Separate Tabular Clinical Diabetes Screening:** Trained on the **Pima Indians Diabetes Database** (`768` clinical records) using leak-free median imputation and Logistic Regression (`ROC-AUC = 0.8126` on held-out test set).
+   - **SQLite Prediction Persistence:** Stores eye image and tabular screening history in `backend/eye_predictions.db`.
 
 ---
 
-## 🫀 Live Biosensors & Hardware Ingestion
+## Important Medical & Scientific Boundaries
 
-In addition to simulated clinical telemetry streams, the system incorporates **Live Laptop Hardware Biosensors**:
+This project strictly separates four distinct medical tasks and never generates fake labels or fabricated blood glucose measurements:
 
-1. **Webcam Optical Photoplethysmography (PPG)**:
-   - Uses the device's web camera via HTML5 `getUserMedia`.
-   - Isolates human skin ROI (Region of Interest) and measures cyclic green-channel light absorption fluctuations caused by pulsatile capillary arterial blood flow.
-   - Extracts live Heart Rate (BPM) and Heart Rate Variability (HRV) in real time and draws the physiological PPG pulse curve.
-   - Automatically synchronizes live measured pulse directly into the ECG classification and risk stratification models.
-
-2. **Microphone Web Audio Acoustic Auscultation**:
-   - Captures ambient audio via HTML5 Web Audio API `AudioContext` and `AnalyserNode`.
-   - Computes a real-time 1024-bin Fast Fourier Transform (FFT) frequency spectrum.
-   - Detects acoustic spectral power spikes characteristic of coughs, wheezing, and dyspnea (200 Hz - 800 Hz transient band).
-   - Automatically injects detected respiratory symptoms into the Disease Prediction model with zero manual typing.
+| Task | Supported? | Implementation & Dataset |
+| :--- | :--- | :--- |
+| **Diabetic Retinopathy Detection (Retinal Fundus)** | **Yes (Research / Screening)** | `MobileNetV3-Small` CNN trained on DeepDRiD / RetinaMNIST 224×224 fundus photographs (grades 0–4) |
+| **Anterior Iris Segmentation & Quality CV** | **Yes (Experimental CV Only)** | OpenCV pupil/iris segmentation, eyelid/glare masking, focus & brightness checks. **Not used for diabetes diagnosis.** |
+| **Clinical / Tabular Diabetes Risk Prediction** | **Yes (Separate Tabular Model)** | Trained strictly on Pima Indians Diabetes tabular features (Glucose, BMI, Age, BP, Insulin, etc.) |
+| **Blood Glucose Measurement (mg/dL) from Eye Image** | **No — Unsupported** | Explicitly blocked; UI & API display: *"Blood glucose cannot be measured from this image using the current model. Please use a validated blood glucose testing device."* |
 
 ---
 
-## 🏗️ System Architecture & Methodology
+## Datasets Used & Data Sources
 
-The pipeline follows a multi-stage sequential processing workflow:
-
-```mermaid
-graph TD
-    A[Patient Input / Wearable Telemetry] --> B[Data Preprocessing & Normalization]
-    
-    subgraph Modular ML Pipeline
-        B --> C["Module 1: Diet Analysis<br/>Random Forest - 89.2%"]
-        B --> D["Module 2: Disease Diagnosis<br/>Multiclass Logistic Reg - 86.7%"]
-        B --> E["Module 3: 12-Lead ECG Ensemble<br/>Soft-Voting RF+XGB+LGBM - 93.5%"]
-        B --> F["Module 4: Fitness Estimation<br/>Interaction LinReg - R² 0.82"]
-    end
-
-    C --> G[Aggregated Multi-Domain Feature Vector]
-    D --> G
-    E --> G
-    F --> G
-
-    G --> H["Module 5: Integrated Risk Stratification<br/>XGBoost Classifier - 91.3%"]
-    
-    H --> I[Low / Moderate / High Risk Probabilities]
-    H --> J[Clinical Action Plan & Lifestyle Guidance]
-    H --> K[React Interactive Dashboard]
-```
+1. **Retinal Fundus Dataset (Primary Training & Evaluation)**:
+   - **RetinaMNIST (224×224 RGB from DeepDRiD Benchmark, MedMNIST v2, CC BY 4.0)**
+   - Public Mirror: `https://huggingface.co/datasets/danjacobellis/retinamnist_224` (Origin: `https://zenodo.org/records/10519652`)
+   - **Why used**: Official Kaggle competitions ([APTOS 2019](https://www.kaggle.com/competitions/aptos2019-blindness-detection/data) and [EyePACS](https://www.kaggle.com/competitions/diabetic-retinopathy-detection/data)) require personal Kaggle API tokens and competition rule acceptance. DeepDRiD / RetinaMNIST provides real clinical RGB retinal fundus scans under the identical 5-grade ICDR scale (`0–4`) with strict patient-disjoint train/val/test separation.
+   - **Prepared Splits (after cross-split perceptual dHash deduplication removing 42 near-duplicates)**:
+     - Training: `1,080` images
+     - Validation: `113` images
+     - Held-out Test: `365` images
+   - **Optional Local Kaggle APTOS 2019 Ingestion**: If you download APTOS 2019 locally (`train.csv` + `train_images/`), `src/eye_analysis/dataset_prep.py --kaggle-aptos-dir <path>` supports preprocessing and splitting it directly.
+2. **Tabular Diabetes Dataset**:
+   - **Pima Indians Diabetes Database** (`768` clinical rows, `8` clinical inputs, binary outcome `0: 500`, `1: 268`)
+   - Source reference: `https://www.kaggle.com/datasets/uciml/pima-indians-diabetes-database` (downloaded cleanly via public UCI/Plotly CSV mirror into `data/pima_diabetes/diabetes.csv`).
 
 ---
 
-## 📊 Machine Learning Modules
+## Project Structure
 
-| Module | Purpose | Algorithm / Architecture | Benchmark Accuracy | Validation Strategy |
-| :--- | :--- | :--- | :--- | :--- |
-| **1. Diet Suggestion** | Energy balance, macro breakdown, circadian splits | Random Forest Classifier (`n_estimators=100`, `max_depth=12`) | **89.2%** | Stratified 5-Fold CV |
-| **2. Disease Prediction** | Symptom-based pathology classification (17 indicators) | Multiclass Logistic Regression (Softmax) | **86.7%** (F1: 0.84) | Stratified 5-Fold CV |
-| **3. ECG Rhythm Classification** | Arrhythmia & morphology classification (NSR, AF, STEMI, LBBB, RBBB, 1° AV) | Weighted Soft-Voting Ensemble (RF + XGBoost + LightGBM + GradBoost) | **93.5%** (AUC: 0.96) | MIT-BIH / PhysioNet Features |
-| **4. Fitness Estimation** | Composite fitness score (0–100) based on physiological indicators | Linear Regression with Engineered Feature Interaction Terms | **R² = 0.82** (MAE: 3.42) | Stratified 5-Fold CV |
-| **5. Health Risk Stratification** | Integrated risk categorization (Low / Moderate / High) | XGBoost Gradient Boosted Trees | **91.3%** (F1: 0.89) | Stratified 5-Fold CV |
-
----
-
-## ⚛️ React Application Structure
-
-```
+```text
 major project/
 ├── backend/
-│   └── server.py              # Python REST API & Real-Time Telemetry server (port 5000)
-├── frontend/                  # React 19 + Vite modern application
-│   ├── dist/                  # Production bundle
-│   ├── public/                # Static assets & favicons
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── Navbar.jsx            # Top navigation & user profile
-│   │   │   ├── TabNavigation.jsx     # Navigation tabs with badges
-│   │   │   ├── LiveTelemetryTab.jsx  # Real-time biosensor monitor (Webcam PPG + Mic)
-│   │   │   ├── LiveTelemetryTicker.jsx # Real-time vitals HUD bar
-│   │   │   ├── WebcamPpgSensor.jsx   # Live optical capillary pulse detector
-│   │   │   ├── LiveAudioAuscultation.jsx # Live microphone acoustic respiration
-│   │   │   ├── OverviewTab.jsx       # Architecture flow & sequential scan
-│   │   │   ├── DietTab.jsx           # Diet planner & dynamic food plates
-│   │   │   ├── DiseaseTab.jsx        # 17 Symptom pills & clinical directives
-│   │   │   ├── EcgTab.jsx            # Patient inputs, upload & animated telemetry
-│   │   │   ├── EcgCanvas.jsx         # HTML5 Canvas real-time ECG sweep renderer
-│   │   │   ├── FitnessTab.jsx        # Lifestyle regression & biomarker meters
-│   │   │   ├── RiskTab.jsx           # XGBoost risk stratification & action plan
-│   │   │   └── Login.jsx             # Authentication & demo profiles
-│   │   ├── modules/                  # 5 Modular ML calculation engines
-│   │   │   ├── dietModule.js
-│   │   │   ├── diseaseModule.js
-│   │   │   ├── ecgModule.js
-│   │   │   ├── fitnessModule.js
-│   │   │   └── riskModule.js
-│   │   ├── services/
-│   │   │   ├── api.js                # REST API connector + client fallback
-│   │   │   └── liveTelemetryService.js # High-frequency streaming service
-│   │   ├── App.jsx                   # Central state & pipeline coordinator
-│   │   ├── index.css                 # Dark theme & styling
-│   │   └── main.jsx                  # React DOM entry point
-│   ├── package.json
-│   └── vite.config.js
-├── package.json               # Root scripts (start, dev, build)
-├── requirements.txt           # Python dependencies
-└── start.bat                  # One-click startup script for Windows
+│   ├── database.py             # SQLite persistence layer (eye_predictions & tabular_diabetes_predictions)
+│   ├── eye_predictions.db      # Auto-initialized SQLite database
+│   ├── server.py               # Python HTTP API server (port 5000) serving ML & Eye endpoints
+│   ├── ml_datasets.py          # Synthetic clinical dataset generators for Modules 1–5
+│   ├── train_models.py         # Training script for Modules 1–5
+│   ├── test_models.py          # Unit tests for Modules 1–5
+│   └── trained_models/         # Saved .joblib models for Modules 1–5
+├── data/
+│   ├── retinal_fundus/         # Prepared RetinaMNIST images + train.csv / val.csv / test.csv
+│   ├── pima_diabetes/          # diabetes.csv (768 records)
+│   └── samples/                # Unseen held-out test fundus samples (grades 0–4) for UI testing
+├── models/
+│   ├── retinal_dr_model.pth    # Best trained MobileNetV3-Small checkpoint (Epoch 10)
+│   ├── preprocessing_config.json
+│   ├── class_labels.json
+│   ├── evaluation_report.json  # Held-out test set metrics & per-class confusion matrix
+│   ├── confusion_matrix.png
+│   ├── roc_curves.png
+│   ├── training_history.png
+│   ├── pima_diabetes_model.joblib
+│   └── pima_diabetes_eval.json
+├── notebooks/
+│   └── eye_analysis_exploration.ipynb
+├── src/
+│   └── eye_analysis/
+│       ├── dataset_prep.py     # Dataset download, integrity verification, dHash dedup, splits
+│       ├── preprocessing.py    # Validation, blur/exposure quality gate, modality check, CLAHE + transforms
+│       ├── iris_pipeline.py    # OpenCV eye/pupil/iris segmentation, eyelid/glare masking, CV features
+│       ├── train_retinal.py    # Transfer learning CNN training script
+│       ├── train_tabular.py    # Separate Pima tabular classifier trainer
+│       ├── evaluate.py         # Independent held-out test set evaluator & plot generator
+│       └── predict.py          # Production prediction engine + CLI predictor
+├── tests/
+│   └── test_eye_module.py      # Automated validation, iris CV, CNN, tabular, and SQLite tests
+├── frontend/                   # React 19 + Vite 8 + Tailwind CSS + Lucide icons
+│   └── src/
+│       ├── components/
+│       │   ├── EyeAnalysisTab.jsx  # "AI Eye Image Analysis" UI, sample loader, plots, Pima risk, history
+│       │   ├── OverviewTab.jsx
+│       │   ├── DietTab.jsx / DiseaseTab.jsx / EcgTab.jsx / FitnessTab.jsx / RiskTab.jsx
+│       │   └── Navbar.jsx / TabNavigation.jsx / Login.jsx
+│       └── services/api.js
+├── requirements.txt
+└── README.md
 ```
 
 ---
 
-## 🏆 Evaluation & Presentation Guide for Judges
+## Setup, Dataset Preparation, Training & Running
 
-When presenting this project to evaluators or judges who demand a **real-time framework rather than a static calculator**, highlight these key points:
-
-1. **Why Static Form Calculators Fail in Clinical Medicine**:
-   - In real intensive care units (ICUs) or cardiac telemetry wards, patients do not sit and type their blood pressure or ST-segment elevation. Telemetry arrives continuously over IoT networks.
-2. **Autonomous Multi-Domain Pipeline**:
-   - Demonstrate the **`🔴 Live Biosensors & Stream`** tab.
-   - Show how vitals update every 1.2s without typing a single key.
-   - Switch between **Atrial Fibrillation**, **Acute STEMI**, and **Hypoxia** scenarios: point out how the ECG morphology shifts, arrhythmia alerts trigger instantaneously, and the XGBoost Risk engine recalculates risk percentages in sub-second time.
-3. **Hardware Biosensor Demonstration**:
-   - Click **Webcam PPG Sensor**: show your finger or face against the camera lens. The green-channel absorbance curve pulses in real-time and calculates your actual live heart rate.
-   - Click **Acoustic Audio Auscultation**: cough or breathe deeply near the microphone. The live 1024-bin FFT spectrum spikes and registers respiratory symptoms automatically.
-4. **Clinical Decision Support (CDS) Integration**:
-   - Explain how raw IoT sensor data feeds into 5 distinct machine learning models (Random Forest, Logistic Regression, Soft-Voting Ensemble, Interaction Regression, and XGBoost) to produce calibrated, holistic risk scores.
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- **Node.js**: v18+ (tested on v22.20.0)
-- **Python**: 3.10+ (tested on 3.13.7)
-
-### One-Click Startup (Recommended)
-
-Simply double-click:
-```bat
-start.bat
+### 1. Install Dependencies
+```powershell
+pip install -r requirements.txt
+cd frontend; npm install; cd ..
 ```
-This automatically starts:
-1. Python Backend API on `http://localhost:5000/`
-2. React Vite Frontend on `http://localhost:5173/`
-3. Opens the application in your default browser.
 
-### Manual Execution
+### 2. Download & Prepare Datasets (Retinal Fundus + Pima Diabetes)
+```powershell
+python -m src.eye_analysis.dataset_prep
+```
+*(Optional Kaggle APTOS 2019 local folder)*:
+```powershell
+python -m src.eye_analysis.dataset_prep --kaggle-aptos-dir path/to/aptos2019
+```
 
-#### Terminal 1 — Backend API Server
+### 3. Train Models
+```powershell
+# Train Modules 1–5
+python backend/train_models.py
+
+# Train Separate Pima Tabular Diabetes Model
+python -m src.eye_analysis.train_tabular
+
+# Train Retinal Fundus DR Classification CNN (MobileNetV3-Small, 15 epochs)
+python -m src.eye_analysis.train_retinal --arch mobilenet_v3_small --epochs 15 --batch-size 32 --lr 0.0003
+```
+
+### 4. Evaluate on Held-Out Test Split
+```powershell
+python -m src.eye_analysis.evaluate
+```
+
+### 5. Run Verification Tests
+```powershell
+python -m unittest tests/test_eye_module.py -v
+python backend/test_models.py
+```
+
+### 6. Run Backend & Frontend
+Terminal 1 (Backend on `http://localhost:5000/`):
 ```powershell
 python backend/server.py
 ```
-> Running on: `http://localhost:5000/`
-
-#### Terminal 2 — React Frontend
+Terminal 2 (Frontend on `http://localhost:5173/`):
 ```powershell
+cd frontend
 npm run dev
-# or: cd frontend && npm run dev
 ```
-> Running on: `http://localhost:5173/`
+Or build frontend (`npm run build`) and serve directly from `http://localhost:5000/`.
 
 ---
 
-## 🔑 Demo Login Accounts
+## Real Held-Out Evaluation Results
 
-| Role | Email / Username | Password | Notes |
-| :--- | :--- | :--- | :--- |
-| **Clinician / Doctor** | `doctor@healthml.io` | `doctor123` | Full clinical decision support access |
-| **Research Evaluator** | `evaluator@ieee.org` | `evaluator123` | Experimental benchmark evaluations |
-| **Monitored Patient** | `patient@healthml.io` | `patient123` | Patient self-monitoring view |
-| **Administrator** | `admin@healthml.io` | `admin123` | System oversight |
+### Retinal Fundus CNN (`MobileNetV3-Small`, Held-Out Test Split `n = 365`)
+- **5-Class Overall Accuracy**: `61.92%`
+- **Weighted F1-Score**: `61.54%` | **Macro F1-Score**: `50.07%`
+- **One-vs-Rest ROC-AUC (Macro)**: `0.8548` | **Weighted**: `0.8668`
+- **Referable DR (`>= Grade 2`) Screening Sensitivity**: **`84.88%`** (`Specificity: 89.12%`, `ROC-AUC: 0.9408`, `False Negatives: 26`)
+- **Any DR (`>= Grade 1`) Screening Sensitivity**: **`84.36%`** (`Specificity: 77.27%`, `ROC-AUC: 0.8968`, `False Negatives: 33`)
 
-*You can also click any Quick Demo Profile on the login page for instant access, or click "Continue as Guest Evaluator".*
+### Separate Tabular Diabetes Screening (`Pima Indians Diabetes`, 20% Test Split `n = 154`)
+- **Selected Model**: `LogisticRegression` (with median zero-imputation + scaling inside Pipeline)
+- **Test Accuracy**: `73.38%` | **Recall (Sensitivity)**: `70.37%` | **Specificity**: `75.00%` | **ROC-AUC**: `0.8126`
 
----
-
-## 👤 Patient Presets
-
-The top navigation bar provides instant one-click scenario presets:
-
-- **⚡ Run Full Scan**: Simultaneously triggers inference across all 5 modules and aggregates predictions into the Risk Stratification dashboard.
-- **🏃 Athlete**: Demonstrates optimal metabolic efficiency, low resting heart rate (52 BPM), balanced muscle gain diet, and minimal risk profile.
-- **🩺 Hypertension**: Demonstrates higher resting heart rate (82 BPM), moderate lifestyle stress, and early risk intervention suggestions.
-- **🫀 Cardiac Risk**: Demonstrates acute presentation with chest pain, cold sweats, dyspnea, ischemic ECG findings (STEMI / RBBB), and urgent clinical action guidance.
+### Known Limitations
+- **Class Imbalance & Rare Grade Sensitivity**: Grade 4 (`Proliferative diabetic retinopathy`, `n=66` train, `n=20` test) has low exact-grade recall (`15.0%`), with `13/20` cases predicted into adjacent `Grade 3 (Severe)` (still flagged as Referable DR). `Grade 1 (Mild)` (`n=39` test) also exhibits boundary overlap with `No DR` (`38.46%` recall).
+- **Resolution & External Generalization**: Training at `224×224` on RetinaMNIST/DeepDRiD (`1,080` training scans) cannot match multi-center clinical grading performance trained on 50,000+ high-resolution fundus images.
+- **Not a Clinical Device**: All outputs are experimental AI academic screening demonstrations, not clinical diagnoses.
 
 ---
 
-## 🛠️ Technologies Used
+## Backend API Endpoints Added
 
-- **Frontend Core**: React 19, Vite 8, Lucide React icons.
-- **Styling**: Tailwind CSS, Custom Glassmorphism styles.
-- **Telemetry Visualizer**: HTML5 Canvas 2D API with real-time sweep rendering.
-- **Backend API**: Python 3 standard library `http.server` & `json` (zero external dependencies required for API execution).
-- **Machine Learning Algorithms**:
-  - Random Forest Classifier (Diet)
-  - Multiclass Logistic Regression / Softmax (Disease)
-  - Soft-Voting Ensemble: Random Forest + XGBoost + LightGBM + Gradient Boosting (ECG)
-  - Interaction Linear Regression (Fitness)
-  - XGBoost Gradient Boosted Classifier (Integrated Risk)
-
----
-
-## 📄 License
-
-This project is licensed under the [ISC License](LICENSE).
+- `GET /api/eye/status` — Returns model training status, evaluation metrics, sample test filenames, and upload limits.
+- `POST /api/eye/analyze` — Validates uploaded eye image (`multipart/form-data` or JSON/sample), assesses quality, classifies retinal DR or runs iris CV segmentation, persists record to SQLite, and returns JSON results.
+- `GET /api/eye/history` — Retrieves stored eye image & tabular prediction history from SQLite.
+- `DELETE /api/eye/history` / `DELETE /api/eye/history/<id>` — Clears or deletes prediction history records.
+- `GET /api/eye/samples/<filename>` — Serves held-out test sample images safely.
+- `GET /api/eye/plots/<filename>` — Serves generated evaluation charts (`confusion_matrix.png`, `roc_curves.png`, `training_history.png`).
+- `POST /api/diabetes/predict` — Runs separate Pima tabular diabetes screening inference and stores history.

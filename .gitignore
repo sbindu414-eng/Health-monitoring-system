@@ -4,11 +4,6 @@ frontend/dist/
 __pycache__/
 backend/__pycache__/
 *.pyc
-
-node_modules/
-frontend/node_modules/
-frontend/dist/
-__pycache__/
-backend/__pycache__/
-*.pyc
-
+*.db
+data/retinal_fundus/raw/
+data/retinal_fundus/images/

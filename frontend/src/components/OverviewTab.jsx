@@ -67,6 +67,19 @@ export default function OverviewTab({ onSelectTab, onRunFullScan, results }) {
             border: 'border-purple-500/30',
             text: 'text-purple-400',
             status: results.risk ? 'Stratified' : 'Ready'
+        },
+        {
+            id: 'eye',
+            num: '06',
+            name: 'AI Eye Image Analysis',
+            algo: 'MobileNetV3 CNN + OpenCV',
+            acc: 'Retinal DR + Iris CV',
+            cv: 'DeepDRiD + Pima ML',
+            desc: 'Classifies retinal fundus diabetic retinopathy severity (0-4), performs experimental iris CV segmentation, and runs separate Pima tabular risk.',
+            color: 'from-sky-500/20 to-sky-500/5',
+            border: 'border-sky-500/30',
+            text: 'text-sky-400',
+            status: 'Active'
         }
     ];
 
@@ -97,6 +110,12 @@ export default function OverviewTab({ onSelectTab, onRunFullScan, results }) {
                         >
                             <span>🛡️</span> View Risk Stratification <ArrowRight className="w-3.5 h-3.5" />
                         </button>
+                        <button
+                            onClick={() => onSelectTab('eye')}
+                            className="px-4 py-2.5 rounded-xl bg-sky-950/60 hover:bg-sky-900/60 text-sky-200 font-medium text-xs border border-sky-500/40 transition-all flex items-center gap-1.5"
+                        >
+                            <span>👁️</span> AI Eye Image Analysis <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
                     </div>
                 </div>
             </div>
@@ -110,7 +129,7 @@ export default function OverviewTab({ onSelectTab, onRunFullScan, results }) {
                     <span className="text-[11px] text-indigo-400 font-mono">End-to-End Processing</span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-3 relative">
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 relative">
                     {modules.map((m, idx) => (
                         <div
                             key={m.id}
