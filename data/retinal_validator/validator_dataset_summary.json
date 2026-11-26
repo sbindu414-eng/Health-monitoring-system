@@ -1,0 +1,107 @@
+{
+  "dataset": "Human Retinal Fundus vs. Non-Retinal / Animal Eye Validation Benchmark",
+  "licenses": {
+    "retinal_eyepacs": "MIT (Diabetic Retinopathy Detection)",
+    "retinal_idrid": "CC BY 4.0 (IDRiD)",
+    "retinal_retinamnist_deepdrid": "CC BY 4.0 (DeepDRiD / RetinaMNIST)",
+    "retinal_aptos2019": "Public Kaggle/HF mirror (APTOS 2019)",
+    "retinal_messidor2": "External zero-shot benchmark (Messidor-2)",
+    "cvdl/oxford-pets": "MIT",
+    "Francesco/animals-ij5d2": "Creative Commons (CC)",
+    "LakoreAI/human-nonhuman-face-classification": "MIT",
+    "fatdove/Iris_Database": "MIT",
+    "hf-vision/chest-xray-pneumonia": "CC BY 4.0",
+    "danjacobellis/dermamnist_224": "CC BY 4.0 (MedMNIST / HAM10000)",
+    "uoft-cs/cifar100": "Public academic benchmark (CIFAR-100)",
+    "wikimedia_commons": "CC0 / Public Domain / CC BY / CC BY-SA"
+  },
+  "splits": {
+    "train": 4654,
+    "val": 1330,
+    "test": 1675
+  },
+  "external_messidor2_pos": 800,
+  "cross_split_duplicates_removed": 62,
+  "class_balance": {
+    "train": {
+      "valid_human_retinal_fundus": 2049,
+      "invalid_non_retinal": 2605
+    },
+    "val": {
+      "valid_human_retinal_fundus": 612,
+      "invalid_non_retinal": 718
+    },
+    "test": {
+      "valid_human_retinal_fundus": 847,
+      "invalid_non_retinal": 828
+    }
+  },
+  "subcategory_breakdown": {
+    "train": {
+      "retinal_grade0": 300,
+      "dog_eye": 252,
+      "retinal_grade1": 300,
+      "retinal_grade4": 300,
+      "medical_non_retinal_derma": 320,
+      "retinal_grade3": 300,
+      "retinal_raw_uncropped": 549,
+      "medical_non_retinal_xray": 199,
+      "retinal_grade2": 300,
+      "animal_other": 260,
+      "natural_object_landscape": 362,
+      "cat_portrait": 108,
+      "nonhuman_eye": 199,
+      "nonhuman_face": 232,
+      "cat_eye": 164,
+      "screen_eye": 12,
+      "dog_portrait": 176,
+      "human_iris": 117,
+      "human_face": 188,
+      "printed_eye": 16
+    },
+    "val": {
+      "human_face": 49,
+      "retinal_grade1": 103,
+      "retinal_raw_uncropped": 135,
+      "retinal_grade0": 104,
+      "medical_non_retinal_derma": 100,
+      "animal_other": 80,
+      "retinal_grade2": 104,
+      "retinal_grade3": 96,
+      "retinal_grade4": 70,
+      "nonhuman_face": 87,
+      "nonhuman_eye": 79,
+      "dog_eye": 55,
+      "cat_portrait": 26,
+      "screen_eye": 4,
+      "medical_non_retinal_xray": 49,
+      "natural_object_landscape": 95,
+      "dog_portrait": 35,
+      "human_iris": 23,
+      "cat_eye": 35,
+      "printed_eye": 1
+    },
+    "test": {
+      "natural_object_landscape": 93,
+      "retinal_grade3": 124,
+      "medical_non_retinal_derma": 150,
+      "nonhuman_eye": 81,
+      "retinal_grade2": 124,
+      "cat_portrait": 25,
+      "human_face": 74,
+      "medical_non_retinal_xray": 48,
+      "nonhuman_face": 92,
+      "animal_other": 100,
+      "retinal_grade4": 124,
+      "dog_eye": 43,
+      "retinal_grade0": 123,
+      "retinal_grade1": 124,
+      "retinal_raw_uncropped": 228,
+      "cat_eye": 34,
+      "human_iris": 44,
+      "printed_eye": 6,
+      "dog_portrait": 33,
+      "screen_eye": 5
+    }
+  }
+}

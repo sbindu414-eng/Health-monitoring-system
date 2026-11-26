@@ -20,6 +20,6 @@
     1.1,
     1.15
   ],
-  "any_dr_threshold": 0.73,
+  "any_dr_threshold": 0.545,
   "trained_at": "2026-11-26 01:08:03"
 }

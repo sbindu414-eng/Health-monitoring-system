@@ -1,0 +1,273 @@
+{
+  "evaluated_at": "2026-11-27 00:34:57",
+  "model_version": "1.0.0",
+  "architecture": "mobilenet_v3_small",
+  "valid_threshold": 0.85,
+  "uncertain_low": 0.3,
+  "test_samples": 1675,
+  "avg_inference_ms": 12.85,
+  "metrics": {
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1_score": 1.0,
+    "roc_auc": 1.0,
+    "false_acceptance_rate": 0.0,
+    "false_rejection_rate": 0.0,
+    "confusion_matrix_labels": [
+      "Invalid_Non_Retinal(0)",
+      "Valid_Retinal(1)"
+    ],
+    "confusion_matrix": [
+      [
+        828,
+        0
+      ],
+      [
+        0,
+        847
+      ]
+    ],
+    "tn": 828,
+    "fp_false_accept": 0,
+    "fn_rejected_or_uncertain": 0,
+    "tp": 847
+  },
+  "abstention_analysis": {
+    "abstained_total": 0,
+    "abstained_negative_caught": 0,
+    "abstained_positive_flagged_uncertain": 0,
+    "definitive_false_rejections_below_uncertain": 0,
+    "definitive_frr": 0.0
+  },
+  "per_subcategory_breakdown": {
+    "animal_other": {
+      "samples": 100,
+      "expected_class": "invalid_non_retinal",
+      "accepted_as_retinal": 0,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 100,
+      "false_acceptance_rate": 0.0,
+      "rejection_rate": 1.0,
+      "retinal_acceptance_rate": null,
+      "mean_p_retinal": 0.0255
+    },
+    "cat_eye": {
+      "samples": 34,
+      "expected_class": "invalid_non_retinal",
+      "accepted_as_retinal": 0,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 34,
+      "false_acceptance_rate": 0.0,
+      "rejection_rate": 1.0,
+      "retinal_acceptance_rate": null,
+      "mean_p_retinal": 0.0271
+    },
+    "cat_portrait": {
+      "samples": 25,
+      "expected_class": "invalid_non_retinal",
+      "accepted_as_retinal": 0,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 25,
+      "false_acceptance_rate": 0.0,
+      "rejection_rate": 1.0,
+      "retinal_acceptance_rate": null,
+      "mean_p_retinal": 0.031
+    },
+    "dog_eye": {
+      "samples": 43,
+      "expected_class": "invalid_non_retinal",
+      "accepted_as_retinal": 0,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 43,
+      "false_acceptance_rate": 0.0,
+      "rejection_rate": 1.0,
+      "retinal_acceptance_rate": null,
+      "mean_p_retinal": 0.0274
+    },
+    "dog_portrait": {
+      "samples": 33,
+      "expected_class": "invalid_non_retinal",
+      "accepted_as_retinal": 0,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 33,
+      "false_acceptance_rate": 0.0,
+      "rejection_rate": 1.0,
+      "retinal_acceptance_rate": null,
+      "mean_p_retinal": 0.0243
+    },
+    "human_face": {
+      "samples": 74,
+      "expected_class": "invalid_non_retinal",
+      "accepted_as_retinal": 0,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 74,
+      "false_acceptance_rate": 0.0,
+      "rejection_rate": 1.0,
+      "retinal_acceptance_rate": null,
+      "mean_p_retinal": 0.0265
+    },
+    "human_iris": {
+      "samples": 44,
+      "expected_class": "invalid_non_retinal",
+      "accepted_as_retinal": 0,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 44,
+      "false_acceptance_rate": 0.0,
+      "rejection_rate": 1.0,
+      "retinal_acceptance_rate": null,
+      "mean_p_retinal": 0.032
+    },
+    "medical_non_retinal_derma": {
+      "samples": 150,
+      "expected_class": "invalid_non_retinal",
+      "accepted_as_retinal": 0,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 150,
+      "false_acceptance_rate": 0.0,
+      "rejection_rate": 1.0,
+      "retinal_acceptance_rate": null,
+      "mean_p_retinal": 0.0282
+    },
+    "medical_non_retinal_xray": {
+      "samples": 48,
+      "expected_class": "invalid_non_retinal",
+      "accepted_as_retinal": 0,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 48,
+      "false_acceptance_rate": 0.0,
+      "rejection_rate": 1.0,
+      "retinal_acceptance_rate": null,
+      "mean_p_retinal": 0.0266
+    },
+    "natural_object_landscape": {
+      "samples": 93,
+      "expected_class": "invalid_non_retinal",
+      "accepted_as_retinal": 0,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 93,
+      "false_acceptance_rate": 0.0,
+      "rejection_rate": 1.0,
+      "retinal_acceptance_rate": null,
+      "mean_p_retinal": 0.0334
+    },
+    "nonhuman_eye": {
+      "samples": 81,
+      "expected_class": "invalid_non_retinal",
+      "accepted_as_retinal": 0,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 81,
+      "false_acceptance_rate": 0.0,
+      "rejection_rate": 1.0,
+      "retinal_acceptance_rate": null,
+      "mean_p_retinal": 0.0286
+    },
+    "nonhuman_face": {
+      "samples": 92,
+      "expected_class": "invalid_non_retinal",
+      "accepted_as_retinal": 0,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 92,
+      "false_acceptance_rate": 0.0,
+      "rejection_rate": 1.0,
+      "retinal_acceptance_rate": null,
+      "mean_p_retinal": 0.0235
+    },
+    "printed_eye": {
+      "samples": 6,
+      "expected_class": "invalid_non_retinal",
+      "accepted_as_retinal": 0,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 6,
+      "false_acceptance_rate": 0.0,
+      "rejection_rate": 1.0,
+      "retinal_acceptance_rate": null,
+      "mean_p_retinal": 0.0365
+    },
+    "retinal_grade0": {
+      "samples": 123,
+      "expected_class": "valid_retinal",
+      "accepted_as_retinal": 123,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 0,
+      "false_acceptance_rate": null,
+      "rejection_rate": null,
+      "retinal_acceptance_rate": 1.0,
+      "mean_p_retinal": 0.993
+    },
+    "retinal_grade1": {
+      "samples": 124,
+      "expected_class": "valid_retinal",
+      "accepted_as_retinal": 124,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 0,
+      "false_acceptance_rate": null,
+      "rejection_rate": null,
+      "retinal_acceptance_rate": 1.0,
+      "mean_p_retinal": 0.9937
+    },
+    "retinal_grade2": {
+      "samples": 124,
+      "expected_class": "valid_retinal",
+      "accepted_as_retinal": 124,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 0,
+      "false_acceptance_rate": null,
+      "rejection_rate": null,
+      "retinal_acceptance_rate": 1.0,
+      "mean_p_retinal": 0.9935
+    },
+    "retinal_grade3": {
+      "samples": 124,
+      "expected_class": "valid_retinal",
+      "accepted_as_retinal": 124,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 0,
+      "false_acceptance_rate": null,
+      "rejection_rate": null,
+      "retinal_acceptance_rate": 1.0,
+      "mean_p_retinal": 0.9933
+    },
+    "retinal_grade4": {
+      "samples": 124,
+      "expected_class": "valid_retinal",
+      "accepted_as_retinal": 124,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 0,
+      "false_acceptance_rate": null,
+      "rejection_rate": null,
+      "retinal_acceptance_rate": 1.0,
+      "mean_p_retinal": 0.9933
+    },
+    "retinal_raw_uncropped": {
+      "samples": 228,
+      "expected_class": "valid_retinal",
+      "accepted_as_retinal": 228,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 0,
+      "false_acceptance_rate": null,
+      "rejection_rate": null,
+      "retinal_acceptance_rate": 1.0,
+      "mean_p_retinal": 0.9937
+    },
+    "screen_eye": {
+      "samples": 5,
+      "expected_class": "invalid_non_retinal",
+      "accepted_as_retinal": 0,
+      "abstained_uncertain": 0,
+      "rejected_non_retinal": 5,
+      "false_acceptance_rate": 0.0,
+      "rejection_rate": 1.0,
+      "retinal_acceptance_rate": null,
+      "mean_p_retinal": 0.0461
+    }
+  },
+  "external_messidor2_positive_generalization": {
+    "samples": 800,
+    "accepted_valid_retinal": 800,
+    "abstained_uncertain": 0,
+    "rejected_invalid": 0,
+    "recall_acceptance_rate": 1.0,
+    "hard_false_rejection_rate": 0.0
+  }
+}

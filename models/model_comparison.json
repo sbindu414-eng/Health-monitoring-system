@@ -6,7 +6,7 @@
     {
       "arch": "efficientnet_b0",
       "best_epoch": 4,
-      "any_dr_threshold": 0.73,
+      "any_dr_threshold": 0.545,
       "val_accuracy": 0.5813,
       "val_macro_f1": 0.4829,
       "val_qwk": 0.69,

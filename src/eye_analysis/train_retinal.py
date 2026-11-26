@@ -201,13 +201,13 @@ def _compute_class_weights(train_csv: str, num_classes: int = 5, power: float = 
 
 
 def _calibrate_any_dr_threshold(val_targets: np.ndarray, val_probs: np.ndarray) -> float:
-    """Select binary Any-DR cutoff strictly on val split balancing Specificity and Sensitivity."""
+    """Select binary Any-DR cutoff strictly on val split balancing Sensitivity and Specificity."""
     y_bin = (val_targets >= 1).astype(int)
     p_any = np.sum(val_probs[:, 1:], axis=1)
     best_thr = 0.50
     best_score = -1.0
-    # Threshold search calibrated for balanced screening (sensitivity and specificity)
-    for thr in np.linspace(0.40, 0.85, 46):
+    # Keep screening cutoff in [0.42, 0.60] so Mild/Moderate DR cases are not masked into Grade 0
+    for thr in np.linspace(0.42, 0.60, 37):
         preds = (p_any >= thr).astype(int)
         tp = int(np.sum((preds == 1) & (y_bin == 1)))
         tn = int(np.sum((preds == 0) & (y_bin == 0)))
@@ -215,7 +215,7 @@ def _calibrate_any_dr_threshold(val_targets: np.ndarray, val_probs: np.ndarray) 
         fn = int(np.sum((preds == 0) & (y_bin == 1)))
         sens = tp / max(1, tp + fn)
         spec = tn / max(1, tn + fp)
-        bal_acc = 0.50 * sens + 0.50 * spec
+        bal_acc = 0.55 * sens + 0.45 * spec
         if bal_acc > best_score:
             best_score = bal_acc
             best_thr = float(round(thr, 3))
@@ -623,8 +623,11 @@ def train_retinal_model(
     val_ds.preload(max_workers=8)
     print(f"[Train Retinal CNN] Preloaded in {time.time() - t0_pre:.1f}s. All epochs run purely from RAM!", flush=True)
 
-    # Class weights balancing healthy specificity with high-grade disease sensitivity
-    class_weights = torch.tensor([1.20, 1.00, 1.00, 1.10, 1.15], dtype=torch.float32)
+    # Compute smoothed inverse-frequency weights from training class counts to avoid crushing Mild/Moderate DR
+    if subsample_train:
+        class_weights = torch.tensor([1.05, 1.15, 1.05, 1.10, 1.15], dtype=torch.float32)
+    else:
+        class_weights = _compute_class_weights(train_csv, num_classes=5, power=0.38)
 
     candidates = compare_archs if compare_archs else [arch]
     results = []

@@ -248,7 +248,13 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
             self._serve_file(sample_path)
         elif path.startswith('/api/eye/plots/'):
             fname = path[len('/api/eye/plots/'):]
-            if fname not in ('confusion_matrix.png', 'roc_curves.png', 'training_history.png'):
+            if fname not in (
+                'confusion_matrix.png',
+                'roc_curves.png',
+                'training_history.png',
+                'retinal_validator_confusion_matrix.png',
+                'retinal_validator_history.png',
+            ):
                 self._send_json(404, {"error": "Plot not found"})
                 return
             plot_path = _safe_join(EYE_MODELS_DIR, fname)

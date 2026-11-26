@@ -1,0 +1,45 @@
+{
+  "compared_at": "2026-11-27 00:29:17",
+  "selected_winner": "mobilenet_v3_small",
+  "selection_criterion": "0.45*Val_AUC + 0.35*Val_F1 + 0.20*Val_Acc - 0.50*Val_FAR@0.75",
+  "candidates": [
+    {
+      "arch": "mobilenet_v3_small",
+      "best_epoch": 3,
+      "valid_threshold": 0.65,
+      "uncertain_low": 0.25,
+      "val_cal_far": 0.0,
+      "val_cal_frr": 0.0,
+      "param_size_mb": 5.8,
+      "epoch": 3,
+      "train_loss": 0.0816,
+      "val_loss": 0.082,
+      "val_accuracy": 1.0,
+      "val_f1": 1.0,
+      "val_roc_auc": 1.0,
+      "val_far_at_075": 0.0,
+      "val_frr_at_075": 0.0,
+      "ms_per_image": 4.21,
+      "selection_score": 1.0
+    },
+    {
+      "arch": "resnet18",
+      "best_epoch": 2,
+      "valid_threshold": 0.65,
+      "uncertain_low": 0.25,
+      "val_cal_far": 0.0,
+      "val_cal_frr": 0.0,
+      "param_size_mb": 42.64,
+      "epoch": 2,
+      "train_loss": 0.099,
+      "val_loss": 0.0842,
+      "val_accuracy": 1.0,
+      "val_f1": 1.0,
+      "val_roc_auc": 1.0,
+      "val_far_at_075": 0.0,
+      "val_frr_at_075": 0.0,
+      "ms_per_image": 26.99,
+      "selection_score": 1.0
+    }
+  ]
+}

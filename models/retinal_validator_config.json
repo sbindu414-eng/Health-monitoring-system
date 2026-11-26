@@ -1,0 +1,11 @@
+{
+  "model_version": "1.0.0",
+  "architecture": "mobilenet_v3_small",
+  "image_size": 224,
+  "valid_threshold": 0.85,
+  "uncertain_low": 0.3,
+  "max_valid_entropy": 0.72,
+  "train_samples": 4654,
+  "val_samples": 1330,
+  "trained_at": "2026-11-27 00:29:17"
+}

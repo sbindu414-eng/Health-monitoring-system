@@ -44,6 +44,12 @@ from src.eye_analysis.preprocessing import (
     get_eval_transforms,
     preprocess_fundus_rgb,
 )
+from src.eye_analysis.retinal_validator import (
+    MSG_INVALID_NON_RETINAL,
+    MSG_UNCERTAIN_RETINAL,
+    load_validator_bundle,
+    validate_human_retinal_fundus,
+)
 from src.eye_analysis.train_retinal import build_backbone_model, predict_batch_tta
 
 MODELS_DIR = os.path.join(ROOT_DIR, "models")
@@ -172,6 +178,7 @@ def load_pima_bundle() -> Optional[Dict]:
 def get_eye_module_status() -> Dict:
     """Return honest runtime availability & evaluation metrics for models."""
     _, ret_meta = load_retinal_bundle()
+    _, val_meta = load_validator_bundle()
     pima_bundle = load_pima_bundle()
     return {
         "retinal_model_trained": bool(ret_meta.get("trained", False)),
@@ -181,6 +188,12 @@ def get_eye_module_status() -> Dict:
         "retinal_evaluation": ret_meta.get("evaluation", {}),
         "retinal_comparison": ret_meta.get("comparison", {}),
         "retinal_training_config": ret_meta.get("training_config", {}),
+        "retinal_validator_trained": bool(val_meta.get("trained", False)),
+        "retinal_validator_architecture": val_meta.get("arch"),
+        "retinal_validator_version": val_meta.get("model_version"),
+        "retinal_validator_evaluation": val_meta.get("evaluation", {}),
+        "retinal_validator_comparison": val_meta.get("comparison", {}),
+        "retinal_validator_config": val_meta.get("config", {}),
         "tabular_diabetes_trained": pima_bundle is not None,
         "tabular_diabetes_evaluation": pima_bundle.get("metadata", {}) if pima_bundle else {},
         "iris_cv_pipeline_ready": True,
@@ -318,7 +331,6 @@ def analyze_uploaded_eye_image(
     is_camera_mode = (
         analysis_mode in ("camera", "live_camera")
         or source in ("camera", "live_camera")
-        or filename.startswith(("webcam_", "live_"))
         or bool(session_id)
     )
 
@@ -358,8 +370,93 @@ def analyze_uploaded_eye_image(
 
         is_liveness_verified = True
 
-    modality_info = detect_eye_modality(rgb_np, requested_mode="anterior_iris" if is_camera_mode else analysis_mode)
-    detected_modality = modality_info["detected_modality"]
+    # Strict pipeline enforcement:
+    # - `anterior_iris` / live webcam routes stay strictly isolated for anterior iris CV pipeline.
+    # - `retinal_fundus` and default `auto` upload run the trained Human Retinal Fundus Validator CNN FIRST;
+    #   the DR EfficientNet-B0 model NEVER runs unless validator verifies Valid Human Retinal Fundus Image.
+    retinal_validation = None
+    if is_camera_mode or analysis_mode == "anterior_iris":
+        modality_info = detect_eye_modality(rgb_np, requested_mode="anterior_iris")
+        detected_modality = modality_info["detected_modality"]
+    else:
+        # Catch pitch-black / severely underexposed blank frames cleanly via image signal quality
+        import cv2 as _cv2
+
+        if float(np.mean(_cv2.cvtColor(rgb_np, _cv2.COLOR_RGB2GRAY) > 12)) < 0.08:
+            quality = assess_image_quality(rgb_np, is_fundus_like=True)
+            return {
+                "status": "rejected_quality",
+                "valid_eye_image": False,
+                "analysis_mode": analysis_mode,
+                "detected_modality": "rejected",
+                "file_meta": file_meta,
+                "quality": quality,
+                "prediction_label": "Image Quality Unacceptable — Rejected",
+                "confidence_pct": 0.0,
+                "message": "Image quality failed validation (cannot reliably verify eye anatomy): " + " ".join(quality["issues"]),
+                "glucose_statement": GLUCOSE_BOUNDARY_MESSAGE,
+                "disclaimer": MEDICAL_DISCLAIMER,
+            }
+
+        # Step 3 & 4: Run dedicated Human Retinal Fundus Image Validation Model BEFORE quality/DR CNN
+        retinal_validation = validate_human_retinal_fundus(rgb_np)
+        if not retinal_validation.get("validator_available", False):
+            return {
+                "status": "validator_not_trained",
+                "valid_eye_image": False,
+                "analysis_mode": analysis_mode,
+                "detected_modality": "rejected",
+                "file_meta": file_meta,
+                "quality": {"is_acceptable": False, "quality_score": 0.0, "status": "validator_unavailable"},
+                "retinal_validation": retinal_validation,
+                "prediction_label": "Retinal Fundus Validator Unavailable",
+                "confidence_pct": 0.0,
+                "message": retinal_validation.get("message", "Retinal validator model not trained."),
+                "glucose_statement": GLUCOSE_BOUNDARY_MESSAGE,
+                "disclaimer": MEDICAL_DISCLAIMER,
+            }
+
+        v_status = retinal_validation.get("validator_status")
+        if v_status == "uncertain":
+            quality = assess_image_quality(rgb_np, is_fundus_like=False)
+            return {
+                "status": "uncertain_retinal",
+                "valid_eye_image": False,
+                "analysis_mode": analysis_mode,
+                "detected_modality": "uncertain",
+                "file_meta": file_meta,
+                "quality": quality,
+                "retinal_validation": retinal_validation,
+                "prediction_label": "Unable to Verify Retinal Fundus Image",
+                "confidence_pct": retinal_validation.get("retinal_fundus_probability_pct", 0.0),
+                "message": MSG_UNCERTAIN_RETINAL,
+                "glucose_statement": GLUCOSE_BOUNDARY_MESSAGE,
+                "disclaimer": MEDICAL_DISCLAIMER,
+            }
+
+        if not retinal_validation.get("is_valid_retinal", False) or v_status != "valid_retinal":
+            quality = assess_image_quality(rgb_np, is_fundus_like=False)
+            return {
+                "status": "rejected",
+                "valid_eye_image": False,
+                "analysis_mode": analysis_mode,
+                "detected_modality": "rejected",
+                "file_meta": file_meta,
+                "quality": quality,
+                "retinal_validation": retinal_validation,
+                "prediction_label": "Invalid / Non-Retinal Image Rejected",
+                "confidence_pct": retinal_validation.get("non_retinal_probability_pct", 0.0),
+                "message": MSG_INVALID_NON_RETINAL,
+                "glucose_statement": GLUCOSE_BOUNDARY_MESSAGE,
+                "disclaimer": MEDICAL_DISCLAIMER,
+            }
+
+        modality_info = {
+            "valid_eye_image": True,
+            "detected_modality": "retinal_fundus",
+            "reason": f"Human Retinal Fundus Validator CNN verified image ({retinal_validation['retinal_fundus_probability_pct']}% confidence).",
+        }
+        detected_modality = "retinal_fundus"
 
     # Keep retinal fundus CNN strictly separated from live webcam capture
     if is_camera_mode and detected_modality == "retinal_fundus":
@@ -537,6 +634,7 @@ def analyze_uploaded_eye_image(
             "uncertainty": uncertainty,
             "is_uncertain": uncertainty["is_uncertain"],
             "uncertainty_warning": uncertainty["uncertainty_warning"],
+            "retinal_validation": retinal_validation,
             "gradcam": gradcam_info,
             "gradcam_overlay_image": gradcam_info.get("overlay_image", ""),
             "clinical_report": clinical_report,

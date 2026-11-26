@@ -475,6 +475,8 @@ export default function EyeAnalysisTab({ session }) {
     const externalEval = evalSummary?.external_cross_dataset_validation || null;
     const perSourceMetrics = evalSummary?.per_source_metrics || {};
     const modelComparison = moduleStatus?.retinal_comparison || null;
+    const validatorEval = moduleStatus?.retinal_validator_evaluation || {};
+    const validatorMetrics = validatorEval?.metrics || {};
     const samples = moduleStatus?.sample_images || [];
 
     const probEntries = analysisResult?.class_probabilities
@@ -672,6 +674,50 @@ export default function EyeAnalysisTab({ session }) {
                             <div className="text-[11px] text-slate-400 font-mono">Training &amp; Validation Loss/F1/QWK</div>
                         </div>
                     </div>
+
+                    {/* Retinal Fundus Input Validator Evaluation Summary */}
+                    {validatorEval?.metrics && (
+                        <div className="bg-slate-950/90 border border-emerald-500/30 rounded-xl p-3.5 space-y-2.5">
+                            <div className="flex flex-wrap justify-between items-center gap-2">
+                                <span className="text-xs font-bold text-emerald-300">
+                                    Human Retinal Fundus Image Validator ({validatorEval.architecture} • Unseen Test Split, n={validatorEval.test_samples})
+                                </span>
+                                <span className="text-[10px] font-mono text-slate-400">
+                                    Accept Cutoff ≥ {((validatorEval.valid_threshold || 0.8) * 100).toFixed(1)}% • Abstain Band {((validatorEval.uncertain_low || 0.35) * 100).toFixed(0)}–{((validatorEval.valid_threshold || 0.8) * 100).toFixed(0)}%
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-center text-[11px] font-mono">
+                                <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                                    <div className="text-[9px] text-slate-400">Accuracy</div>
+                                    <div className="text-emerald-300 font-bold">{(validatorMetrics.accuracy * 100).toFixed(2)}%</div>
+                                </div>
+                                <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                                    <div className="text-[9px] text-slate-400">Precision</div>
+                                    <div className="text-sky-300 font-bold">{(validatorMetrics.precision * 100).toFixed(2)}%</div>
+                                </div>
+                                <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                                    <div className="text-[9px] text-slate-400">Recall</div>
+                                    <div className="text-cyan-300 font-bold">{(validatorMetrics.recall * 100).toFixed(2)}%</div>
+                                </div>
+                                <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                                    <div className="text-[9px] text-slate-400">F1 Score</div>
+                                    <div className="text-teal-300 font-bold">{(validatorMetrics.f1_score * 100).toFixed(2)}%</div>
+                                </div>
+                                <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                                    <div className="text-[9px] text-slate-400">ROC-AUC</div>
+                                    <div className="text-purple-300 font-bold">{validatorMetrics.roc_auc?.toFixed(4)}</div>
+                                </div>
+                                <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                                    <div className="text-[9px] text-slate-400">False Accept (FAR)</div>
+                                    <div className="text-rose-300 font-bold">{(validatorMetrics.false_acceptance_rate * 100).toFixed(2)}%</div>
+                                </div>
+                                <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                                    <div className="text-[9px] text-slate-400">False Reject (FRR)</div>
+                                    <div className="text-amber-300 font-bold">{(validatorMetrics.false_rejection_rate * 100).toFixed(2)}%</div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -1256,6 +1302,41 @@ export default function EyeAnalysisTab({ session }) {
                                     <div className="text-[11px] font-mono text-amber-300/80 pt-1">
                                         Diagnostic results suppressed: Static photographs, screen captures, or replayed videos are rejected.
                                     </div>
+                                </div>
+                            )}
+
+                            {/* Strict Retinal Fundus Validation Rejection / Uncertain Abstention Banners */}
+                            {analysisResult.status === 'uncertain_retinal' && (
+                                <div className="rounded-2xl p-5 border-2 bg-amber-950/40 border-amber-500 text-center space-y-2 shadow-xl">
+                                    <div className="text-xl sm:text-2xl font-black tracking-tight text-amber-300 flex items-center justify-center gap-2">
+                                        <AlertTriangle className="w-6 h-6 text-amber-400" />
+                                        <span>UNABLE TO VERIFY RETINAL FUNDUS IMAGE</span>
+                                    </div>
+                                    <p className="text-sm font-bold text-amber-200 max-w-xl mx-auto">
+                                        {analysisResult.message}
+                                    </p>
+                                    {analysisResult.retinal_validation && (
+                                        <div className="text-[11px] font-mono text-amber-300/90">
+                                            Retinal Fundus Probability: {analysisResult.retinal_validation.retinal_fundus_probability_pct}% (Required ≥ {(analysisResult.retinal_validation.valid_threshold * 100).toFixed(1)}%) • DR classification intentionally blocked.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {analysisResult.status === 'rejected' && (
+                                <div className="rounded-2xl p-5 border-2 bg-rose-950/40 border-rose-500 text-center space-y-2 shadow-xl">
+                                    <div className="text-xl sm:text-2xl font-black tracking-tight text-rose-300 flex items-center justify-center gap-2">
+                                        <XCircle className="w-6 h-6 text-rose-400" />
+                                        <span>INVALID / NON-RETINAL IMAGE REJECTED</span>
+                                    </div>
+                                    <p className="text-sm font-bold text-rose-200 max-w-xl mx-auto">
+                                        {analysisResult.message}
+                                    </p>
+                                    {analysisResult.retinal_validation && (
+                                        <div className="text-[11px] font-mono text-rose-300/90">
+                                            Retinal Fundus Score: {analysisResult.retinal_validation.retinal_fundus_probability_pct}% • Non-Retinal Score: {analysisResult.retinal_validation.non_retinal_probability_pct}% • DR CNN skipped.
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
