@@ -179,10 +179,46 @@ export const api = {
         return await res.json();
     },
 
-    async analyzeEyeImage({ file, sampleName, mode = 'auto', userRole = 'Clinician' }) {
+    async verifyLivenessStream({ frameBase64, sessionId, framesBase64, cameraDeviceId = null }) {
+        const res = await fetch(`${API_BASE}/eye/liveness/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ frameBase64, sessionId, framesBase64, cameraDeviceId }),
+            signal: AbortSignal.timeout(8000)
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Liveness verification request failed');
+        }
+        return await res.json();
+    },
+
+    async resetLivenessSession(sessionId) {
+        try {
+            const res = await fetch(`${API_BASE}/eye/liveness/reset`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId }),
+                signal: AbortSignal.timeout(4000)
+            });
+            if (res.ok) return await res.json();
+        } catch {
+            // Ignore reset network errors during teardown
+        }
+        return { status: "RESET" };
+    },
+
+    async analyzeEyeImage({ file, sampleName, mode = 'auto', userRole = 'Clinician', sessionId = null, verificationToken = null, source = 'upload' }) {
         const formData = new FormData();
         formData.append('mode', mode);
         formData.append('userRole', userRole);
+        formData.append('source', source);
+        if (sessionId) {
+            formData.append('sessionId', sessionId);
+        }
+        if (verificationToken) {
+            formData.append('verificationToken', verificationToken);
+        }
         if (file) {
             formData.append('image', file);
         } else if (sampleName) {

@@ -15,7 +15,9 @@ import mimetypes
 from email.parser import BytesParser
 from email.policy import default as email_default_policy
 from urllib.parse import urlparse, parse_qs, unquote
+import threading
 import numpy as np
+import cv2
 import joblib
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
@@ -35,6 +37,17 @@ from backend.database import (
     init_db,
     save_diabetes_prediction,
     save_eye_prediction,
+)
+from src.eye_analysis.liveness_pad import (
+    LiveHumanEyeVerifier,
+    PresentationAttackDetector,
+    SESSION_MANAGER,
+    verify_webcam_frame_sequence,
+    MSG_LIVENESS_FAILED,
+    MSG_SPOOF_DETECTED,
+    MSG_WAITING_FOR_EYE,
+    MSG_EYE_DETECTED,
+    MSG_LIVE_VERIFIED,
 )
 from src.eye_analysis.predict import (
     analyze_uploaded_eye_image,
@@ -127,9 +140,18 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _send_json(self, status: int, payload: dict):
+        def _default_serializer(obj):
+            if isinstance(obj, np.ndarray):
+                return None
+            if isinstance(obj, (np.floating, np.integer)):
+                return obj.item()
+            if isinstance(obj, (np.bool_, bool)):
+                return bool(obj)
+            return str(obj)
+
         try:
             self._set_headers(status)
-            self.wfile.write(json.dumps(payload).encode('utf-8'))
+            self.wfile.write(json.dumps(payload, default=_default_serializer).encode('utf-8'))
         except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
             pass
 
@@ -263,17 +285,86 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
         post_data = self.rfile.read(content_length) if content_length > 0 else b'{}'
         content_type = self.headers.get('Content-Type', '')
 
+        if path == '/api/eye/liveness/verify':
+            try:
+                body = json.loads(post_data.decode('utf-8')) if post_data else {}
+                session_id = body.get('sessionId') or f"session_{int(time.time()*1000)}"
+                frame_b64 = body.get('frameBase64')
+                frames_b64 = body.get('framesBase64')
+                camera_device_id = body.get('cameraDeviceId')
+
+                # Case 1: Batch sequence of frames
+                if frames_b64 and isinstance(frames_b64, list):
+                    frame_bytes_list = []
+                    for f in frames_b64:
+                        if ',' in f:
+                            f = f.split(',', 1)[1]
+                        frame_bytes_list.append(base64.b64decode(f))
+                    liveness_res = verify_webcam_frame_sequence(frame_bytes_list)
+                    self._send_json(200, liveness_res)
+                    return
+
+                # Case 2: Live streaming single frame with sessionId via authoritative SESSION_MANAGER
+                if not frame_b64:
+                    self._send_json(400, {"error": "No frameBase64 provided in request."})
+                    return
+
+                if ',' in frame_b64:
+                    frame_b64 = frame_b64.split(',', 1)[1]
+                frame_bytes = base64.b64decode(frame_b64)
+                np_arr = np.frombuffer(frame_bytes, np.uint8)
+                frame_bgr = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+                if frame_bgr is None:
+                    self._send_json(400, {"error": "Unable to decode image frame."})
+                    return
+
+                liveness_res = SESSION_MANAGER.process_frame(
+                    session_id=session_id,
+                    frame_bgr=frame_bgr,
+                    camera_device_id=camera_device_id,
+                )
+                pad_data = liveness_res.get("pad_analysis") or {}
+                sub_m = pad_data.get("sub_metrics") or {}
+                print(
+                    f"[LIVENESS] status={liveness_res.get('status')} state={liveness_res.get('state_machine_state')} "
+                    f"pad_score={pad_data.get('pad_score')} is_spoof={pad_data.get('is_spoof')} "
+                    f"liveness={liveness_res.get('liveness_score_pct')}% blinks={liveness_res.get('blink_count')} "
+                    f"n_frames={liveness_res.get('consecutive_frames')} sub_m={sub_m}",
+                    flush=True,
+                )
+                self._send_json(200, liveness_res)
+            except Exception as e:
+                self._send_json(500, {"error": str(e), "status": "error"})
+            return
+
+        if path == '/api/eye/liveness/reset':
+            try:
+                body = json.loads(post_data.decode('utf-8')) if post_data else {}
+                session_id = body.get('sessionId')
+                SESSION_MANAGER.reset_session(session_id)
+                self._send_json(200, {"status": "RESET", "sessionId": session_id})
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
+            return
+
         if path == '/api/eye/analyze':
             try:
                 file_bytes = None
                 filename = 'upload.png'
                 analysis_mode = 'auto'
                 user_role = 'Clinician'
+                session_id = None
+                verification_token = None
+                source = 'upload'
 
                 if 'multipart/form-data' in content_type.lower():
                     fields, files = _parse_multipart_form(content_type, post_data)
                     analysis_mode = fields.get('mode', 'auto')
                     user_role = fields.get('userRole', 'Clinician')
+                    session_id = fields.get('sessionId')
+                    verification_token = fields.get('verificationToken')
+                    source = fields.get('source', 'upload')
                     if 'image' in files:
                         file_bytes = files['image']['bytes']
                         filename = files['image']['filename']
@@ -293,6 +384,9 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
                     body = json.loads(post_data.decode('utf-8')) if post_data else {}
                     analysis_mode = body.get('mode', 'auto')
                     user_role = body.get('userRole', 'Clinician')
+                    session_id = body.get('sessionId')
+                    verification_token = body.get('verificationToken')
+                    source = body.get('source', 'upload')
                     if body.get('imageBase64'):
                         b64_str = body['imageBase64']
                         if ',' in b64_str:
@@ -312,10 +406,14 @@ class HealthMLAPIHandler(BaseHTTPRequestHandler):
                     self._send_json(400, {"error": "No eye image file provided in request."})
                     return
 
+                # Authoritative backend prediction enforces SESSION_MANAGER single-use token & PAD
                 result = analyze_uploaded_eye_image(
                     file_bytes=file_bytes,
                     filename=filename,
                     analysis_mode=analysis_mode,
+                    session_id=session_id,
+                    verification_token=verification_token,
+                    source=source,
                 )
 
                 qual = result.get("quality", {})

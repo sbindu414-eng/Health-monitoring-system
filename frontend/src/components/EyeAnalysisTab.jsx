@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     Eye,
     Upload,
@@ -13,20 +13,61 @@ import {
     BarChart3,
     Activity,
     ShieldAlert,
+    ShieldCheck,
     Info,
+    RotateCcw,
     Image as ImageIcon,
 } from 'lucide-react';
 import { api } from '../services/api';
+
+const UI_STATUS_MESSAGES = {
+    waiting_for_camera:   'Start your camera to begin.',
+    waiting_for_eye:      'Waiting for eye. Please look directly into the camera.',
+    eye_detected:         'Eye detected. Verifying that it is live.',
+    verifying_liveness:   'Please follow the eye movement instructions.',
+    spoof_detected:       'Possible screen or photograph detected. Analysis blocked.',
+    verification_failed:  'Live human eye could not be verified. Please try again.',
+    live_verified:        'Live eye verified. Starting analysis.',
+    analysis_in_progress: 'Analysis in progress...',
+    completed:            'Eye analysis completed successfully.',
+};
+
+const LIVENESS_STATUS_LABELS = {
+    waiting_for_camera:   'WAITING_FOR_CAMERA',
+    waiting_for_eye:      'WAITING_FOR_EYE',
+    eye_detected:         'EYE_DETECTED',
+    verifying_liveness:   'VERIFYING_LIVENESS',
+    spoof_detected:       'PRESENTATION_ATTACK_DETECTED',
+    live_verified:        'LIVE_EYE_VERIFIED',
+    analysis_in_progress: 'ANALYSIS_RUNNING',
+    completed:            'ANALYSIS_COMPLETED',
+    verification_failed:  'VERIFICATION_FAILED',
+};
+
+const MSG_LIVENESS_FAILED = UI_STATUS_MESSAGES.verification_failed;
+const MSG_SPOOF_DETECTED  = UI_STATUS_MESSAGES.spoof_detected;
 
 export default function EyeAnalysisTab({ session }) {
     const fileInputRef = useRef(null);
     const videoRef = useRef(null);
     const captureCanvasRef = useRef(null);
     const streamRef = useRef(null);
+    const sessionIdRef = useRef('');
+    const verificationTokenRef = useRef('');
+    const streamIntervalRef = useRef(null);
+    const isCheckingRef = useRef(false);
 
     const [inputSource, setInputSource] = useState('upload'); // 'upload' | 'camera'
     const [cameraActive, setCameraActive] = useState(false);
     const [cameraReady, setCameraReady] = useState(false);
+    const [cameraDevices, setCameraDevices] = useState([]);
+    const [selectedDeviceId, setSelectedDeviceId] = useState('');
+
+    // Live Eye Verification & Presentation Attack Detection (PAD) state
+    const [livenessState, setLivenessState] = useState('waiting_for_camera');
+    const [livenessFeedback, setLivenessFeedback] = useState(UI_STATUS_MESSAGES.waiting_for_camera);
+    const [livenessTelemetry, setLivenessTelemetry] = useState(null);
+    const [isLiveVerified, setIsLiveVerified] = useState(false);
 
     const [selectedFile, setSelectedFile] = useState(null);
     const [selectedSample, setSelectedSample] = useState('');
@@ -38,6 +79,20 @@ export default function EyeAnalysisTab({ session }) {
     const [moduleStatus, setModuleStatus] = useState(null);
     const [analysisResult, setAnalysisResult] = useState(null);
     const [showEvalPanel, setShowEvalPanel] = useState(false);
+
+    const refreshCameraDevices = useCallback(async () => {
+        if (!navigator.mediaDevices?.enumerateDevices) return;
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const cams = devices.filter((d) => d.kind === 'videoinput');
+            setCameraDevices(cams);
+            if (!selectedDeviceId && cams.length > 0 && cams[0].deviceId) {
+                setSelectedDeviceId(cams[0].deviceId);
+            }
+        } catch {
+            // Ignore enumerate permission errors before camera starts
+        }
+    }, [selectedDeviceId]);
 
     const loadStatus = async () => {
         try {
@@ -60,7 +115,16 @@ export default function EyeAnalysisTab({ session }) {
         };
     }, [previewUrl]);
 
-    const stopCamera = () => {
+    const stopCamera = useCallback(() => {
+        if (streamIntervalRef.current) {
+            clearInterval(streamIntervalRef.current);
+            streamIntervalRef.current = null;
+        }
+        if (sessionIdRef.current) {
+            api.resetLivenessSession(sessionIdRef.current).catch(() => {});
+            sessionIdRef.current = '';
+        }
+        verificationTokenRef.current = '';
         if (streamRef.current) {
             streamRef.current.getTracks().forEach((track) => track.stop());
             streamRef.current = null;
@@ -70,64 +134,261 @@ export default function EyeAnalysisTab({ session }) {
         }
         setCameraActive(false);
         setCameraReady(false);
-    };
+        setLivenessState('waiting_for_camera');
+        setLivenessFeedback(UI_STATUS_MESSAGES.waiting_for_camera);
+        setLivenessTelemetry(null);
+        setIsLiveVerified(false);
+        isCheckingRef.current = false;
+    }, []);
 
     useEffect(() => {
         return () => {
             stopCamera();
         };
-    }, []);
+    }, [stopCamera]);
 
-    const startCamera = async () => {
+    const runVerifiedLiveAnalysis = async (activeSessionId, activeToken) => {
+        if (!activeSessionId || !activeToken) {
+            setLivenessState('verification_failed');
+            setLivenessFeedback(UI_STATUS_MESSAGES.verification_failed);
+            setIsLiveVerified(false);
+            return;
+        }
+        setLivenessState('analysis_in_progress');
+        setLivenessFeedback(UI_STATUS_MESSAGES.analysis_in_progress);
+        setIsAnalyzing(true);
+        setErrorMsg('');
+        try {
+            const video = videoRef.current;
+            const canvas = captureCanvasRef.current || document.createElement('canvas');
+            const width = video?.videoWidth || 640;
+            const height = video?.videoHeight || 480;
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (video) {
+                ctx.drawImage(video, 0, 0, width, height);
+            }
+
+            const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+            if (!blob) throw new Error('Failed to capture verified frame from webcam');
+
+            const file = new File([blob], `live_webcam_eye_${Date.now()}.png`, { type: 'image/png' });
+            setSelectedFile(file);
+            if (previewUrl && previewUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(previewUrl);
+            }
+            setPreviewUrl(URL.createObjectURL(file));
+
+            // Consume single-use verification token immediately on client side too
+            verificationTokenRef.current = '';
+
+            const res = await api.analyzeEyeImage({
+                file,
+                mode: 'live_camera',
+                sessionId: activeSessionId,
+                verificationToken: activeToken,
+                source: 'camera',
+                userRole: session?.role || 'Clinician',
+            });
+
+            setAnalysisResult(res);
+            if (res?.status === 'completed') {
+                setLivenessState('completed');
+                setLivenessFeedback(UI_STATUS_MESSAGES.completed);
+                await loadStatus();
+            } else if (res?.status === 'spoof_detected') {
+                setLivenessState('spoof_detected');
+                setLivenessFeedback(UI_STATUS_MESSAGES.spoof_detected);
+            } else {
+                setLivenessState('verification_failed');
+                setLivenessFeedback(UI_STATUS_MESSAGES.verification_failed);
+            }
+        } catch (err) {
+            setErrorMsg(err.message || 'Live eye analysis failed.');
+            setLivenessState('verification_failed');
+            setLivenessFeedback(UI_STATUS_MESSAGES.verification_failed);
+        } finally {
+            setIsAnalyzing(false);
+            setIsLiveVerified(false);
+            verificationTokenRef.current = '';
+        }
+    };
+
+    const startLivenessStreamLoop = (activeSessionId, deviceIdUsed = selectedDeviceId) => {
+        if (streamIntervalRef.current) {
+            clearInterval(streamIntervalRef.current);
+            streamIntervalRef.current = null;
+        }
+
+        const offscreenCanvas = document.createElement('canvas');
+        const vW = videoRef.current?.videoWidth || 640;
+        const vH = videoRef.current?.videoHeight || 480;
+        offscreenCanvas.width = vW;
+        offscreenCanvas.height = vH;
+        const ctx = offscreenCanvas.getContext('2d');
+
+        streamIntervalRef.current = setInterval(async () => {
+            if (isCheckingRef.current || !videoRef.current || !sessionIdRef.current) return;
+            if (sessionIdRef.current !== activeSessionId) return;
+            if (videoRef.current.readyState < 2) return;
+
+            try {
+                isCheckingRef.current = true;
+                ctx.drawImage(videoRef.current, 0, 0, vW, vH);
+                const frameDataUrl = offscreenCanvas.toDataURL('image/jpeg', 0.85);
+
+                const res = await api.verifyLivenessStream({
+                    sessionId: activeSessionId,
+                    frameBase64: frameDataUrl,
+                    cameraDeviceId: deviceIdUsed || null,
+                });
+
+                if (!res || sessionIdRef.current !== activeSessionId) return;
+
+                setLivenessTelemetry(res);
+
+                const padData = res.pad_analysis || res.pad_result;
+                const livenessScore = Number(res.liveness_score_pct ?? res.confidence ?? 0);
+
+                if (res.status === 'spoof_detected' || padData?.is_spoof) {
+                    verificationTokenRef.current = '';
+                    setLivenessState('spoof_detected');
+                    setLivenessFeedback(UI_STATUS_MESSAGES.spoof_detected);
+                    setIsLiveVerified(false);
+                    setAnalysisResult(null);
+                } else if (res.status === 'verification_failed') {
+                    verificationTokenRef.current = '';
+                    setLivenessState('verification_failed');
+                    setLivenessFeedback(UI_STATUS_MESSAGES.verification_failed);
+                    setIsLiveVerified(false);
+                    setAnalysisResult(null);
+                } else if (res.status === 'live_verified' && res.is_live && res.verificationToken && livenessScore >= 65) {
+                    verificationTokenRef.current = res.verificationToken;
+                    setLivenessState('live_verified');
+                    setIsLiveVerified(true);
+                    setLivenessFeedback(UI_STATUS_MESSAGES.live_verified);
+                    if (streamIntervalRef.current) {
+                        clearInterval(streamIntervalRef.current);
+                        streamIntervalRef.current = null;
+                    }
+                    await runVerifiedLiveAnalysis(activeSessionId, res.verificationToken);
+                } else if (res.status === 'eye_detected') {
+                    verificationTokenRef.current = '';
+                    setIsLiveVerified(false);
+                    setLivenessState('eye_detected');
+                    setLivenessFeedback(UI_STATUS_MESSAGES.eye_detected);
+                } else if (res.status === 'verifying_liveness') {
+                    verificationTokenRef.current = '';
+                    setIsLiveVerified(false);
+                    setLivenessState('verifying_liveness');
+                    setLivenessFeedback(UI_STATUS_MESSAGES.verifying_liveness);
+                } else if (res.status === 'waiting_for_eye') {
+                    verificationTokenRef.current = '';
+                    setIsLiveVerified(false);
+                    setLivenessState('waiting_for_eye');
+                    setLivenessFeedback(UI_STATUS_MESSAGES.waiting_for_eye);
+                } else {
+                    verificationTokenRef.current = '';
+                    setIsLiveVerified(false);
+                    setLivenessState('verification_failed');
+                    setLivenessFeedback(UI_STATUS_MESSAGES.verification_failed);
+                }
+            } catch (err) {
+                console.warn('Liveness verification stream frame error:', err);
+            } finally {
+                isCheckingRef.current = false;
+            }
+        }, 140);
+    };
+
+    const startCamera = async (overrideDeviceId = null) => {
         setErrorMsg('');
         setCameraReady(false);
+        setAnalysisResult(null);
+        verificationTokenRef.current = '';
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             setErrorMsg('Laptop webcam API is unavailable in this browser.');
             return;
         }
+        // Always stop any previous stream & reset previous session on camera restart or device switch
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach((t) => t.stop());
+            streamRef.current = null;
+        }
+        if (sessionIdRef.current) {
+            api.resetLivenessSession(sessionIdRef.current).catch(() => {});
+        }
+        const devId = overrideDeviceId !== null ? overrideDeviceId : selectedDeviceId;
         try {
+            const videoConstraint = devId
+                ? { width: { ideal: 640 }, height: { ideal: 480 }, deviceId: { exact: devId } }
+                : { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' };
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+                video: videoConstraint,
                 audio: false,
             });
             streamRef.current = stream;
+            await refreshCameraDevices();
+            const newSessionId = `cam_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+            sessionIdRef.current = newSessionId;
+            setLivenessState('waiting_for_eye');
+            setLivenessFeedback(UI_STATUS_MESSAGES.waiting_for_eye);
+            setLivenessTelemetry(null);
+            setIsLiveVerified(false);
             setCameraActive(true);
+
             setTimeout(async () => {
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
                     await videoRef.current.play();
                     setCameraReady(true);
+                    startLivenessStreamLoop(newSessionId, devId);
                 }
-            }, 50);
+            }, 80);
         } catch (err) {
             setErrorMsg(`Unable to access laptop camera: ${err.message || 'Permission denied'}`);
             stopCamera();
         }
     };
 
-    const handleCaptureSnapshot = () => {
-        const video = videoRef.current;
-        const canvas = captureCanvasRef.current;
-        if (!video || !canvas || !cameraReady) {
-            setErrorMsg('Camera stream is not ready yet.');
+    const handleCameraDeviceChange = async (nextDeviceId) => {
+        setSelectedDeviceId(nextDeviceId);
+        if (cameraActive) {
+            await startCamera(nextDeviceId);
+        }
+    };
+
+    const handleResetVerification = async () => {
+        if (streamIntervalRef.current) {
+            clearInterval(streamIntervalRef.current);
+            streamIntervalRef.current = null;
+        }
+        if (sessionIdRef.current) {
+            await api.resetLivenessSession(sessionIdRef.current);
+        }
+        verificationTokenRef.current = '';
+        const newSessionId = `cam_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        sessionIdRef.current = newSessionId;
+        setLivenessState(cameraActive ? 'waiting_for_eye' : 'waiting_for_camera');
+        setLivenessFeedback(cameraActive ? UI_STATUS_MESSAGES.waiting_for_eye : UI_STATUS_MESSAGES.waiting_for_camera);
+        setLivenessTelemetry(null);
+        setIsLiveVerified(false);
+        setAnalysisResult(null);
+        setErrorMsg('');
+        if (cameraActive && videoRef.current) {
+            startLivenessStreamLoop(newSessionId, selectedDeviceId);
+        }
+    };
+
+    const handleCaptureSnapshot = async () => {
+        if (!isLiveVerified || !verificationTokenRef.current || livenessState !== 'live_verified') {
+            setErrorMsg(UI_STATUS_MESSAGES.verification_failed);
             return;
         }
-        const width = video.videoWidth || 640;
-        const height = video.videoHeight || 480;
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, width, height);
-
-        canvas.toBlob((blob) => {
-            if (!blob) {
-                setErrorMsg('Failed to capture image from laptop camera.');
-                return;
-            }
-            const file = new File([blob], `webcam_eye_${Date.now()}.png`, { type: 'image/png' });
-            handleFileSelect(file);
-            stopCamera();
-        }, 'image/png');
+        if (sessionIdRef.current && verificationTokenRef.current) {
+            await runVerifiedLiveAnalysis(sessionIdRef.current, verificationTokenRef.current);
+        }
     };
 
     const handleSourceSwitch = (nextSource) => {
@@ -135,6 +396,14 @@ export default function EyeAnalysisTab({ session }) {
         setErrorMsg('');
         if (nextSource === 'upload') {
             stopCamera();
+        } else {
+            refreshCameraDevices();
+            setSelectedFile(null);
+            setSelectedSample('');
+            setPreviewUrl('');
+            setAnalysisResult(null);
+            setLivenessState('waiting_for_camera');
+            setLivenessFeedback(UI_STATUS_MESSAGES.waiting_for_camera);
         }
     };
 
@@ -171,6 +440,10 @@ export default function EyeAnalysisTab({ session }) {
     };
 
     const handleAnalyzeImage = async () => {
+        if (inputSource === 'camera') {
+            setErrorMsg(UI_STATUS_MESSAGES.verification_failed);
+            return;
+        }
         if (!selectedFile && !selectedSample) {
             setErrorMsg('Please upload an eye image or choose a held-out test sample first.');
             return;
@@ -182,6 +455,7 @@ export default function EyeAnalysisTab({ session }) {
                 file: selectedFile,
                 sampleName: selectedSample,
                 mode: analysisMode,
+                source: 'upload',
                 userRole: session?.role || 'Clinician',
             });
             setAnalysisResult(res);
@@ -190,6 +464,8 @@ export default function EyeAnalysisTab({ session }) {
             setErrorMsg(err.message || 'Analysis failed.');
         } finally {
             setIsAnalyzing(false);
+            setIsLiveVerified(false);
+            verificationTokenRef.current = '';
         }
     };
 
@@ -512,8 +788,25 @@ export default function EyeAnalysisTab({ session }) {
                             )}
                         </>
                     ) : (
-                        /* Laptop Camera Snapshot Capture Box */
+                        /* Laptop Camera Live Verification & Analysis Box */
                         <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 space-y-3">
+                            {cameraDevices.length > 1 && (
+                                <div className="flex items-center justify-between gap-2 text-[11px]">
+                                    <span className="text-slate-400">Webcam Device</span>
+                                    <select
+                                        value={selectedDeviceId}
+                                        onChange={(e) => handleCameraDeviceChange(e.target.value)}
+                                        className="bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-slate-200 text-[11px] max-w-[190px]"
+                                    >
+                                        {cameraDevices.map((cam, idx) => (
+                                            <option key={cam.deviceId || idx} value={cam.deviceId}>
+                                                {cam.label || `Camera ${idx + 1}`}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
                             <div className="relative rounded-lg overflow-hidden bg-black aspect-video flex items-center justify-center border border-slate-800">
                                 <video
                                     ref={videoRef}
@@ -524,30 +817,88 @@ export default function EyeAnalysisTab({ session }) {
                                 {!cameraActive && (
                                     <div className="text-center p-4 space-y-1.5 text-slate-400">
                                         <Camera className="w-7 h-7 mx-auto text-sky-400 opacity-70" />
-                                        <div className="text-xs font-medium text-slate-200">Laptop Camera Ready</div>
+                                        <div className="text-xs font-medium text-slate-200">Start your camera to begin.</div>
                                         <p className="text-[10px] text-slate-500">
-                                            Captures an external eye/iris photo for CV quality &amp; iris segmentation (cannot measure blood glucose).
+                                            Captures a live human eye directly in front of the webcam with multi-frame liveness, challenge-response &amp; PAD verification.
                                         </p>
                                     </div>
                                 )}
                                 {cameraActive && (
-                                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                                        <div className="w-36 h-24 rounded-full border-2 border-dashed border-sky-400/75 flex items-center justify-center">
-                                            <span className="text-[9px] font-mono text-sky-200 bg-slate-950/80 px-1.5 py-0.5 rounded">
-                                                Center Eye Here
+                                    <>
+                                        {/* Dynamic Target HUD Box */}
+                                        <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                                            <div
+                                                className={`w-36 h-24 rounded-full border-2 border-dashed flex items-center justify-center transition-all ${
+                                                    livenessState === 'live_verified' || livenessState === 'completed'
+                                                        ? 'border-emerald-400/90 shadow-lg shadow-emerald-500/20'
+                                                        : livenessState === 'spoof_detected' || livenessState === 'verification_failed'
+                                                        ? 'border-rose-400/90 shadow-lg shadow-rose-500/20'
+                                                        : livenessState === 'eye_detected'
+                                                        ? 'border-sky-400/90 shadow-lg shadow-sky-500/20'
+                                                        : 'border-slate-500/60'
+                                                }`}
+                                            >
+                                                <span
+                                                    className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
+                                                        livenessState === 'live_verified' || livenessState === 'completed'
+                                                            ? 'text-emerald-300 bg-slate-950/90'
+                                                            : livenessState === 'spoof_detected' || livenessState === 'verification_failed'
+                                                            ? 'text-rose-300 bg-slate-950/90'
+                                                            : 'text-sky-200 bg-slate-950/80'
+                                                    }`}
+                                                >
+                                                    {livenessState === 'live_verified'
+                                                        ? '✓ Live Verified'
+                                                        : livenessState === 'completed'
+                                                        ? '✓ Analysis Completed'
+                                                        : livenessState === 'spoof_detected'
+                                                        ? '⚠ Spoof Blocked'
+                                                        : livenessState === 'verification_failed'
+                                                        ? '✕ Verification Failed'
+                                                        : 'Center Real Eye Here'}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Status Pill in Video Corner */}
+                                        <div className="absolute top-2 left-2 z-10">
+                                            <span
+                                                className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold flex items-center gap-1 shadow-md border ${
+                                                    livenessState === 'live_verified' || livenessState === 'completed'
+                                                        ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500/50'
+                                                        : livenessState === 'spoof_detected' || livenessState === 'verification_failed'
+                                                        ? 'bg-rose-950/90 text-rose-300 border-rose-500/60 animate-pulse'
+                                                        : livenessState === 'eye_detected'
+                                                        ? 'bg-sky-950/90 text-sky-300 border-sky-500/50'
+                                                        : livenessState === 'verifying_liveness' || livenessState === 'analysis_in_progress'
+                                                        ? 'bg-indigo-950/90 text-indigo-300 border-indigo-500/50'
+                                                        : 'bg-amber-950/90 text-amber-300 border-amber-500/50'
+                                                }`}
+                                            >
+                                                {livenessState === 'verifying_liveness' || livenessState === 'analysis_in_progress' ? (
+                                                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                                ) : livenessState === 'live_verified' || livenessState === 'completed' ? (
+                                                    <CheckCircle2 className="w-2.5 h-2.5" />
+                                                ) : livenessState === 'spoof_detected' || livenessState === 'verification_failed' ? (
+                                                    <ShieldAlert className="w-2.5 h-2.5" />
+                                                ) : (
+                                                    <Eye className="w-2.5 h-2.5" />
+                                                )}
+                                                <span>{LIVENESS_STATUS_LABELS[livenessState] || livenessState}</span>
                                             </span>
                                         </div>
-                                    </div>
+                                    </>
                                 )}
                                 <canvas ref={captureCanvasRef} className="hidden" />
                             </div>
 
+                            {/* Camera Action Buttons */}
                             <div className="flex gap-2">
                                 {!cameraActive ? (
                                     <button
                                         type="button"
-                                        onClick={startCamera}
-                                        className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all"
+                                        onClick={() => startCamera()}
+                                        className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-md shadow-emerald-700/20"
                                     >
                                         <Camera className="w-3.5 h-3.5" /> Start Camera
                                     </button>
@@ -556,10 +907,19 @@ export default function EyeAnalysisTab({ session }) {
                                         <button
                                             type="button"
                                             onClick={handleCaptureSnapshot}
-                                            disabled={!cameraReady}
-                                            className="flex-1 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+                                            disabled={!isLiveVerified || livenessState !== 'live_verified'}
+                                            title={isLiveVerified ? 'Capture verified live eye snapshot' : 'Verification required before capture'}
+                                            className="flex-1 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                                         >
-                                            <Aperture className="w-3.5 h-3.5" /> Capture Eye Snapshot
+                                            <Aperture className="w-3.5 h-3.5" /> Capture Snapshot
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleResetVerification}
+                                            title="Reset verification state and start fresh scan"
+                                            className="px-2.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1 transition-all border border-slate-700"
+                                        >
+                                            <RotateCcw className="w-3.5 h-3.5" /> Reset
                                         </button>
                                         <button
                                             type="button"
@@ -569,6 +929,125 @@ export default function EyeAnalysisTab({ session }) {
                                             <CameraOff className="w-3.5 h-3.5" /> Stop
                                         </button>
                                     </>
+                                )}
+                            </div>
+
+                            {/* Live Liveness & Presentation Attack Detection HUD Details */}
+                            <div className="space-y-2 pt-1">
+                                {/* Real-time Status Card */}
+                                <div className="flex items-center justify-between text-[11px] font-mono px-1">
+                                    <span className="text-slate-400">Live Verification:</span>
+                                    <span className="font-semibold text-slate-200">
+                                        {LIVENESS_STATUS_LABELS[livenessState] || livenessState}
+                                    </span>
+                                </div>
+
+                                {/* Specific Required State Messages & Guidance */}
+                                {!cameraActive && (
+                                    <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 text-slate-300 text-xs flex items-start gap-2">
+                                        <Info className="w-4 h-4 text-sky-400 flex-shrink-0 mt-0.5" />
+                                        <span>{UI_STATUS_MESSAGES.waiting_for_camera}</span>
+                                    </div>
+                                )}
+
+                                {cameraActive && livenessState === 'spoof_detected' && (
+                                    <div className="p-2.5 rounded-lg bg-rose-950/60 border border-rose-500 text-rose-200 text-xs flex items-start gap-2 shadow-lg">
+                                        <ShieldAlert className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+                                        <div>
+                                            <strong className="text-rose-300 block">Presentation Attack Detected:</strong>
+                                            <span>{UI_STATUS_MESSAGES.spoof_detected}</span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {cameraActive && livenessState === 'verification_failed' && (
+                                    <div className="p-2.5 rounded-lg bg-amber-950/60 border border-amber-500 text-amber-200 text-xs flex items-start gap-2 shadow-lg">
+                                        <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                                        <div>
+                                            <strong className="text-amber-300 block">Verification Failed:</strong>
+                                            <span>{UI_STATUS_MESSAGES.verification_failed}</span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {cameraActive && livenessState === 'live_verified' && (
+                                    <div className="p-2.5 rounded-lg bg-emerald-950/50 border border-emerald-500/60 text-emerald-200 text-xs flex items-start gap-2 shadow-lg">
+                                        <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                                        <div>
+                                            <strong className="text-emerald-300 block">Verified:</strong>
+                                            <span>{UI_STATUS_MESSAGES.live_verified}</span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {cameraActive && livenessState === 'completed' && (
+                                    <div className="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-500/50 text-emerald-200 text-xs flex items-start gap-2">
+                                        <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                                        <span>{UI_STATUS_MESSAGES.completed}</span>
+                                    </div>
+                                )}
+
+                                {cameraActive && (livenessState === 'verifying_liveness' || livenessState === 'eye_detected' || livenessState === 'waiting_for_eye' || livenessState === 'analysis_in_progress') && (
+                                    <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 text-slate-300 text-xs flex items-start gap-2">
+                                        <Info className="w-4 h-4 text-sky-400 flex-shrink-0 mt-0.5" />
+                                        <div className="space-y-1">
+                                            <span className="block">
+                                                {livenessFeedback || UI_STATUS_MESSAGES[livenessState]}
+                                            </span>
+                                            {livenessState === 'verifying_liveness' && livenessTelemetry?.challenge && !livenessTelemetry.challenge.passed && (
+                                                <div className="p-2 rounded bg-sky-950/60 border border-sky-500/40 text-sky-200 text-[11px]">
+                                                    <strong className="text-sky-300 block font-mono">
+                                                        Challenge Step {Math.min((livenessTelemetry.challenge.step_index ?? 0) + 1, livenessTelemetry.challenge.total_steps || 4)} of {livenessTelemetry.challenge.total_steps || 4}:
+                                                    </strong>
+                                                    <span className="font-semibold text-white">{livenessTelemetry.challenge.instruction}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Telemetry Metric Badges (No hardcoded 100% fallback!) */}
+                                {cameraActive && livenessTelemetry && (
+                                    <div className="grid grid-cols-3 gap-1.5 p-2 bg-slate-950 rounded-lg border border-slate-800/80 text-[10px] font-mono text-center">
+                                        <div>
+                                            <span className="text-slate-500 block">Blinks</span>
+                                            <span className="text-sky-300 font-bold">{livenessTelemetry.blink_count ?? 0}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-slate-500 block">PAD Genuine</span>
+                                            <span
+                                                className={`font-bold ${
+                                                    livenessTelemetry.pad_analysis?.is_spoof
+                                                        ? 'text-rose-400'
+                                                        : livenessTelemetry.pad_analysis?.pad_confidence_pct !== undefined
+                                                        ? 'text-emerald-300'
+                                                        : 'text-slate-400'
+                                                }`}
+                                            >
+                                                {livenessTelemetry.pad_analysis?.pad_confidence_pct !== undefined
+                                                    ? `${livenessTelemetry.pad_analysis.pad_confidence_pct}%${livenessTelemetry.pad_analysis.is_spoof ? ' (Spoof)' : ''}`
+                                                    : '--'}
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <span className="text-slate-500 block">Liveness</span>
+                                            <span
+                                                className={`font-bold ${
+                                                    livenessTelemetry.is_live
+                                                        ? 'text-emerald-300'
+                                                        : Number(livenessTelemetry.liveness_score_pct ?? livenessTelemetry.confidence ?? 0) <= 0
+                                                        ? 'text-rose-400'
+                                                        : 'text-amber-300'
+                                                }`}
+                                            >
+                                                {livenessTelemetry.liveness_score_pct !== undefined
+                                                    ? `${livenessTelemetry.liveness_score_pct}%`
+                                                    : livenessTelemetry.confidence !== undefined
+                                                    ? `${livenessTelemetry.confidence}%`
+                                                    : '0%'}
+                                            </span>
+                                        </div>
+                                    </div>
                                 )}
                             </div>
                         </div>
@@ -602,24 +1081,30 @@ export default function EyeAnalysisTab({ session }) {
                         </div>
                     )}
 
-                    <button
-                        type="button"
-                        onClick={handleAnalyzeImage}
-                        disabled={isAnalyzing || (!selectedFile && !selectedSample)}
-                        className="w-full py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-semibold text-xs shadow-lg shadow-sky-600/25 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-                    >
-                        {isAnalyzing ? (
-                            <>
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                <span>Analysing Eye Image...</span>
-                            </>
-                        ) : (
-                            <>
-                                <Sparkles className="w-4 h-4" />
-                                <span>Analyse Image</span>
-                            </>
-                        )}
-                    </button>
+                    {inputSource === 'upload' ? (
+                        <button
+                            type="button"
+                            onClick={handleAnalyzeImage}
+                            disabled={isAnalyzing || (!selectedFile && !selectedSample)}
+                            className="w-full py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-semibold text-xs shadow-lg shadow-sky-600/25 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                        >
+                            {isAnalyzing ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    <span>Analysing Eye Image...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Sparkles className="w-4 h-4" />
+                                    <span>Analyse Image</span>
+                                </>
+                            )}
+                        </button>
+                    ) : (
+                        <div className="text-[11px] font-mono text-center text-slate-400 bg-slate-950/70 border border-slate-800 rounded-xl py-2 px-3">
+                            Live camera analysis unlocks automatically after PAD &amp; challenge-response pass.
+                        </div>
+                    )}
                 </div>
 
                 {/* Right 2 Columns: Analysis Results, Quality Status, Class Probabilities, Iris CV */}
@@ -733,6 +1218,44 @@ export default function EyeAnalysisTab({ session }) {
                                             )}
                                         </div>
                                     )}
+                                </div>
+                            )}
+
+                            {/* Presentation Attack Detection (PAD) Rejection Banner */}
+                            {analysisResult.status === 'spoof_detected' && (
+                                <div className="rounded-2xl p-5 border-2 bg-rose-950/40 border-rose-500 text-center space-y-2.5 shadow-xl">
+                                    <div className="text-xl sm:text-2xl font-black tracking-tight text-rose-300 flex items-center justify-center gap-2">
+                                        <ShieldAlert className="w-6 h-6 text-rose-400" />
+                                        <span>POSSIBLE SCREEN OR PHOTOGRAPH DETECTED</span>
+                                    </div>
+                                    <p className="text-sm font-bold text-rose-200 max-w-xl mx-auto">
+                                        {UI_STATUS_MESSAGES.spoof_detected}
+                                    </p>
+                                    <p className="text-xs text-slate-300 max-w-lg mx-auto leading-relaxed">
+                                        Presentation Attack Detection (PAD) detected high-frequency 2D spectral Moiré screen lines, low LBP texture entropy, diffuse reflection, or device bezels.
+                                    </p>
+                                    <div className="text-[11px] font-mono text-rose-300/80 pt-1">
+                                        Diagnostic results suppressed: Only a directly present live human eye is accepted.
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Liveness Verification Failure Banner */}
+                            {(analysisResult.status === 'liveness_failed' || analysisResult.status === 'verification_failed') && (
+                                <div className="rounded-2xl p-5 border-2 bg-amber-950/40 border-amber-500 text-center space-y-2.5 shadow-xl">
+                                    <div className="text-xl sm:text-2xl font-black tracking-tight text-amber-300 flex items-center justify-center gap-2">
+                                        <AlertTriangle className="w-6 h-6 text-amber-400" />
+                                        <span>LIVE HUMAN EYE NOT VERIFIED</span>
+                                    </div>
+                                    <p className="text-sm font-bold text-amber-200 max-w-xl mx-auto">
+                                        {UI_STATUS_MESSAGES.verification_failed}
+                                    </p>
+                                    <p className="text-xs text-slate-300 max-w-lg mx-auto leading-relaxed">
+                                        The system requires multi-frame landmark tracking, natural eyelid blink dynamics, interactive eye-movement challenge completion, and non-spoof verification.
+                                    </p>
+                                    <div className="text-[11px] font-mono text-amber-300/80 pt-1">
+                                        Diagnostic results suppressed: Static photographs, screen captures, or replayed videos are rejected.
+                                    </div>
                                 </div>
                             )}
 

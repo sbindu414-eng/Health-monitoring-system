@@ -28,6 +28,15 @@ from src.eye_analysis.clinical_reference import build_retinal_screening_report
 from src.eye_analysis.dataset_prep import DR_CLASS_NAMES, ROOT_DIR
 from src.eye_analysis.gradcam import generate_fundus_gradcam
 from src.eye_analysis.iris_pipeline import analyze_iris_image
+from src.eye_analysis.liveness_pad import (
+    MSG_LIVENESS_FAILED,
+    MSG_SPOOF_DETECTED,
+    PAD_GENUINE_THRESHOLD,
+    SESSION_MANAGER,
+    UI_MESSAGES,
+    PresentationAttackDetector,
+    RealTimeEyeDetector,
+)
 from src.eye_analysis.preprocessing import (
     assess_image_quality,
     decode_and_validate_upload,
@@ -214,22 +223,153 @@ def _assess_uncertainty(probs: np.ndarray, quality_score: float) -> Dict:
     }
 
 
+def _run_pad_on_rgb(rgb_np: np.ndarray) -> Tuple[Optional[Dict], Dict]:
+    """Detect eye ROI and run Presentation Attack Detection (PAD) on an RGB image."""
+    import cv2
+
+    bgr_np = cv2.cvtColor(rgb_np, cv2.COLOR_RGB2BGR)
+    h_img, w_img = bgr_np.shape[:2]
+    det_res = None
+    eye_box = (0, 0, w_img, h_img)
+    try:
+        det_res = RealTimeEyeDetector().detect_eye_region(bgr_np)
+        if det_res and det_res.get("eye_box"):
+            eye_box = det_res["eye_box"]
+    except Exception:
+        det_res = None
+    pad_res = PresentationAttackDetector().analyze_frame_pad(bgr_np, eye_box)
+    return det_res, pad_res
+
+
+def _spoof_rejection_response(
+    analysis_mode: str,
+    file_meta: Dict,
+    quality: Dict,
+    pad_res: Dict,
+) -> Dict:
+    """Build standardized Presentation Attack / Spoof blocking payload."""
+    return {
+        "status": "spoof_detected",
+        "valid_eye_image": False,
+        "analysis_mode": analysis_mode,
+        "detected_modality": "anterior_iris",
+        "file_meta": file_meta,
+        "quality": quality,
+        "prediction_label": "Possible Photograph or Screen Detected",
+        "confidence_pct": pad_res.get("pad_confidence_pct", 0.0),
+        "pad_result": pad_res,
+        "message": MSG_SPOOF_DETECTED,
+        "ui_message": UI_MESSAGES["spoof_detected"],
+        "guidance_message": MSG_SPOOF_DETECTED,
+        "glucose_statement": GLUCOSE_BOUNDARY_MESSAGE,
+        "disclaimer": MEDICAL_DISCLAIMER,
+    }
+
+
+def _liveness_rejection_response(
+    analysis_mode: str,
+    file_meta: Dict,
+    reason: str = "",
+    pad_res: Optional[Dict] = None,
+) -> Dict:
+    """Build standardized liveness verification failure blocking payload."""
+    payload = {
+        "status": "liveness_failed",
+        "valid_eye_image": False,
+        "analysis_mode": analysis_mode,
+        "detected_modality": "anterior_iris",
+        "file_meta": file_meta,
+        "quality": {"is_acceptable": False, "quality_score": 0.0, "status": "liveness_unverified"},
+        "prediction_label": "Live Human Eye Not Verified",
+        "confidence_pct": 0.0,
+        "message": MSG_LIVENESS_FAILED,
+        "ui_message": UI_MESSAGES["verification_failed"],
+        "guidance_message": MSG_LIVENESS_FAILED,
+        "auth_reason": reason or MSG_LIVENESS_FAILED,
+        "glucose_statement": GLUCOSE_BOUNDARY_MESSAGE,
+        "disclaimer": MEDICAL_DISCLAIMER,
+    }
+    if pad_res is not None:
+        payload["pad_result"] = pad_res
+    return payload
+
+
 def analyze_uploaded_eye_image(
     file_bytes: bytes,
     filename: str = "upload.png",
     analysis_mode: str = "auto",
     include_gradcam: bool = True,
+    is_liveness_verified: bool = False,
+    liveness_telemetry: Optional[Dict] = None,
+    session_id: Optional[str] = None,
+    verification_token: Optional[str] = None,
+    source: str = "upload",
 ) -> Dict:
     """
-    Full validated inference workflow for an uploaded eye image:
+    Full validated inference workflow for an eye image:
     1. File integrity & resolution check
-    2. Eye vs non-eye & Retinal Fundus vs Anterior Iris modality check
-    3. Resolution-normalized quality gating (blur, exposure, glare, completeness)
-    4. Modality-appropriate inference (Retinal DR CNN + Grad-CAM OR Iris OpenCV pipeline)
+    2. Live-camera backend authorization (validates short-lived single-use session token & PAD)
+    3. Eye vs non-eye & Retinal Fundus vs Anterior Iris modality check
+    4. Resolution-normalized quality gating (blur, exposure, glare, completeness)
+    5. Modality-appropriate inference (Retinal DR CNN + Grad-CAM OR Iris OpenCV pipeline with PAD)
     """
     rgb_np, file_meta = decode_and_validate_upload(file_bytes, filename=filename)
-    modality_info = detect_eye_modality(rgb_np, requested_mode=analysis_mode)
+
+    is_camera_mode = (
+        analysis_mode in ("camera", "live_camera")
+        or source in ("camera", "live_camera")
+        or filename.startswith(("webcam_", "live_"))
+        or bool(session_id)
+    )
+
+    session_snapshot = None
+    if is_camera_mode:
+        # Independently validate short-lived server verification token; never trust raw boolean flags alone
+        if liveness_telemetry is not None:
+            t_pad = liveness_telemetry.get("pad_analysis") or liveness_telemetry.get("pad_result") or {}
+            t_score = float(liveness_telemetry.get("liveness_score_pct", liveness_telemetry.get("confidence", 0.0)) or 0.0)
+            if t_pad.get("is_spoof"):
+                return _spoof_rejection_response(
+                    analysis_mode,
+                    file_meta,
+                    {"is_acceptable": False, "quality_score": 0.0, "status": "spoof_detected"},
+                    t_pad,
+                )
+            if (not liveness_telemetry.get("is_live")) or t_score <= 0.0:
+                return _liveness_rejection_response(analysis_mode, file_meta, "Live telemetry failed threshold.")
+
+        token_ok, token_reason, session_snapshot = SESSION_MANAGER.validate_and_consume_token(
+            session_id=session_id,
+            verification_token=verification_token,
+            consume=True,
+        )
+        if not token_ok or session_snapshot is None:
+            return _liveness_rejection_response(analysis_mode, file_meta, reason=token_reason)
+
+        # Immediately check PAD on the submitted camera snapshot as well (prevents post-verification phone swaps)
+        _, snap_pad_res = _run_pad_on_rgb(rgb_np)
+        if snap_pad_res.get("is_spoof") or snap_pad_res.get("pad_score", 0.0) < PAD_GENUINE_THRESHOLD:
+            return _spoof_rejection_response(
+                analysis_mode,
+                file_meta,
+                {"is_acceptable": False, "quality_score": 0.0, "status": "spoof_detected"},
+                snap_pad_res,
+            )
+
+        is_liveness_verified = True
+
+    modality_info = detect_eye_modality(rgb_np, requested_mode="anterior_iris" if is_camera_mode else analysis_mode)
     detected_modality = modality_info["detected_modality"]
+
+    # Keep retinal fundus CNN strictly separated from live webcam capture
+    if is_camera_mode and detected_modality == "retinal_fundus":
+        _, cam_pad = _run_pad_on_rgb(rgb_np)
+        return _spoof_rejection_response(
+            analysis_mode,
+            file_meta,
+            {"is_acceptable": False, "quality_score": 0.0, "status": "spoof_detected"},
+            cam_pad,
+        )
 
     is_fundus_like = detected_modality == "retinal_fundus"
     quality = assess_image_quality(rgb_np, is_fundus_like=is_fundus_like)
@@ -278,7 +418,7 @@ def analyze_uploaded_eye_image(
             "disclaimer": MEDICAL_DISCLAIMER,
         }
 
-    # Strict modality isolation: run Retinal Fundus DR CNN ONLY on validated retinal_fundus images.
+    # Strict modality isolation: run Retinal Fundus DR CNN ONLY on validated non-camera retinal_fundus uploads.
     if detected_modality == "retinal_fundus":
         model, meta = load_retinal_bundle()
         if model is None:
@@ -406,6 +546,20 @@ def analyze_uploaded_eye_image(
         }
 
     # Anterior eye / iris computer vision pipeline ONLY (never run retinal fundus DR CNN on iris photos)
+    # Reuse PAD check if already executed on live camera snapshot; otherwise run PAD on uploaded anterior image
+    if session_snapshot is not None:
+        pad_res = snap_pad_res
+    else:
+        _, pad_res = _run_pad_on_rgb(rgb_np)
+
+    # Presentation Attack / Spoof Gate: strictly reject any screen, photograph, or presentation attack
+    if pad_res.get("is_spoof"):
+        return _spoof_rejection_response(analysis_mode, file_meta, quality, pad_res)
+
+    # Live Camera Mode defense-in-depth gate
+    if is_camera_mode and not is_liveness_verified:
+        return _liveness_rejection_response(analysis_mode, file_meta, pad_res=pad_res)
+
     iris_res = analyze_iris_image(rgb_np)
     return {
         "status": "completed",
@@ -426,7 +580,7 @@ def analyze_uploaded_eye_image(
         "severity_tier": "Not Applicable (Iris Photo)",
         "severity_description": (
             "External iris segmented & quality-verified. Upload a retinal fundus scan to screen for diabetic retinopathy, "
-            "or use the Pima Tabular Clinical Screening form below for metabolic diabetes risk."
+            "or use clinical risk screening for metabolic diabetes risk."
         ),
         "predicted_grade": None,
         "prediction_label": "External Iris Segmented (Retinal Fundus Scan Required for DR Screening)",
@@ -434,6 +588,9 @@ def analyze_uploaded_eye_image(
         "class_probabilities": {},
         "is_uncertain": False,
         "uncertainty_warning": "",
+        "pad_result": pad_res,
+        "liveness_verified": bool(is_liveness_verified),
+        "liveness_telemetry": liveness_telemetry,
         "iris_detected": iris_res["iris_detected"],
         "segmentation_completed": iris_res["segmentation_completed"],
         "iris_analysis": iris_res,
