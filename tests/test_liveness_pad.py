@@ -554,6 +554,47 @@ class TestComprehensivePADAndAuthorization(unittest.TestCase):
         self.assertTrue(analysis.get("iris_detected"))
         self.assertIn("iris_analysis", analysis)
 
+    def test_held_mobile_phone_with_white_ui_bezel_and_slide_lockout_rejected(self):
+        """Tilted smartphone screen displaying eye images with UI borders and blink-like motion stays blocked."""
+        sid = f"phone_lockout_{int(np.random.randint(1000, 9999))}"
+        SESSION_MANAGER.reset_session(sid)
+
+        def _make_held_phone_frame(openness: float, shift: int = 0) -> np.ndarray:
+            # Neutral indoor room background
+            img = np.full((480, 640, 3), (150, 155, 160), dtype=np.uint8)
+            # Dark phone body held near center
+            x1, y1, x2, y2 = 220 + shift, 85, 415 + shift, 405
+            cv2.rectangle(img, (x1, y1), (x2, y2), (24, 24, 26), -1)
+            # Bright white smartphone UI screen inset inside dark bezel
+            sx1, sy1, sx2, sy2 = x1 + 14, y1 + 18, x2 - 14, y2 - 18
+            cv2.rectangle(img, (sx1, sy1), (sx2, sy2), (242, 245, 250), -1)
+            # Synthetic eye rendered inside the glowing mobile screen
+            ex, ey = (sx1 + sx2) // 2, (sy1 + sy2) // 2
+            ry = max(3, int(18 * openness))
+            cv2.ellipse(img, (ex, ey), (36, ry), 0, 0, 360, (235, 238, 242), -1)
+            ir = min(ry, 13)
+            if ir > 3:
+                cv2.circle(img, (ex, ey), ir, (55, 85, 115), -1)
+                cv2.circle(img, (ex, ey), max(2, ir // 2), (16, 16, 18), -1)
+                cv2.circle(img, (ex - 3, ey - 3), 2, (255, 255, 255), -1)
+            # Mild LCD subpixel shimmer (fft ratio ~32-36, lower than old 48 threshold)
+            y_coords = np.arange(480)[:, None]
+            moire = (9 * np.sin(2 * np.pi * y_coords / 4.0)).astype(np.int16)
+            return np.clip(img.astype(np.int16) + moire[:, :, None], 0, 255).astype(np.uint8)
+
+        statuses = []
+        tokens = []
+        for idx, (opn, shift) in enumerate([(1.0, 0), (1.0, 4), (0.15, 25), (1.0, 0), (1.0, 3), (0.12, -20), (1.0, 2), (1.0, 0), (1.0, 2)]):
+            res = SESSION_MANAGER.process_frame(sid, _make_held_phone_frame(opn, shift=shift), camera_device_id="cam_0")
+            statuses.append(res.get("status"))
+            self.assertFalse(res.get("is_live"), f"Mobile phone spoof passed at frame {idx}: {res}")
+            self.assertNotEqual(res.get("state_machine_state"), STATE_LIVE_VERIFIED)
+            if "verificationToken" in res:
+                tokens.append(res["verificationToken"])
+
+        self.assertIn("spoof_detected", statuses, f"Held phone spoof was never flagged: {statuses}")
+        self.assertEqual(tokens, [], "No verification token may ever be issued for a phone spoof sequence")
+
 
 if __name__ == "__main__":
     unittest.main()

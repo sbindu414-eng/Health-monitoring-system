@@ -522,11 +522,11 @@ class PresentationAttackDetector:
             is_spoof = True
             spoof_type = "mobile_screen"
             reasons.append("High-frequency Moiré/pixel grid pattern detected characteristic of digital displays.")
-        # 2. Enclosed 4-sided screen bezel OR edge-pair bezel corroborated by secondary screen signal
+        # 2. Enclosed screen bezel (including tilted rotated smartphone bezel) OR edge-pair corroborated by screen cues
         elif bezel_detected and (
-            bezel_score >= 0.96
+            bezel_score >= 0.92
             or (
-                bezel_score >= 0.72
+                bezel_score >= 0.70
                 and (
                     screen_region_detected
                     or screen_region_score >= 0.40
@@ -539,8 +539,8 @@ class PresentationAttackDetector:
             is_spoof = True
             spoof_type = "mobile_screen"
             reasons.append("Rectangular screen bezel or device border detected around eye region.")
-        # 3. Whole-frame emissive display surface detected (>= 2 independent screen cues)
-        elif screen_region_detected and screen_region_score >= 0.65:
+        # 3. Whole-frame emissive display surface detected (or glowing phone screen + Moiré harmonic)
+        elif (screen_region_detected and screen_region_score >= 0.60) or (moire_score <= 0.45 and screen_region_score >= 0.35):
             is_spoof = True
             spoof_type = "mobile_screen"
             reasons.append("Emissive digital display surface detected in camera view.")
@@ -641,11 +641,11 @@ class PresentationAttackDetector:
         median_val = float(np.median(band_vals))
         spike_ratio = float(max_val / max(1e-4, median_val))
 
-        if spike_ratio > 48.0:
+        if spike_ratio > 40.0:
             moire_score = 0.15  # Definite periodic screen pixel grid / Moiré
-        elif spike_ratio > 34.0:
-            moire_score = 0.42  # Suspicious borderline harmonic spike
-        elif spike_ratio > 24.0:
+        elif spike_ratio > 28.5:
+            moire_score = 0.42  # Suspicious periodic display harmonic spike
+        elif spike_ratio > 23.0:
             moire_score = 0.68  # Mild compression/eyelash harmonics
         else:
             moire_score = 0.92  # Clean organic eye
@@ -783,8 +783,9 @@ class PresentationAttackDetector:
         all_horiz = top_segs + bottom_segs
 
         # Check paired left+right vertical screen edges forming an enclosed or finite Y-aligned screen frame
-        matched_v = 0
-        edge_pad_y = max(4, int(h * 0.04))
+        matched_v_full = 0
+        matched_v_compact = 0
+        edge_pad_y = max(6, int(h * 0.06))
         for lx, ly0, ly1 in left_segs:
             for rx, ry0, ry1 in right_segs:
                 span_w = rx - lx
@@ -793,8 +794,6 @@ class PresentationAttackDetector:
                 if not (0.14 * w <= span_w <= 0.86 * w) or (overlap_y / min_len < 0.50):
                     continue
 
-                # Ignore open-ended vertical room furniture/wall lines behind a real face
-                # unless bridged by a matching horizontal bezel bar or tightly enclosed in-frame.
                 has_h_bridge = any(
                     abs(hx0 - lx) <= 0.15 * w and abs(hx1 - rx) <= 0.15 * w and (hx1 - hx0) >= 0.55 * span_w
                     for _, hx0, hx1 in all_horiz
@@ -804,26 +803,98 @@ class PresentationAttackDetector:
                     and max(ly1, ry1) <= (h - edge_pad_y)
                     and abs(ly0 - ry0) <= 0.16 * h
                     and abs(ly1 - ry1) <= 0.16 * h
-                    and span_w <= 0.72 * w
                 )
                 if face_box is not None and not has_h_bridge:
                     fx, _, fw, _ = face_box
                     if lx < fx - 0.08 * fw and rx > fx + fw + 0.08 * fw and span_w > fw * 1.25:
                         continue
 
-                if has_h_bridge or is_finite_aligned_pair or matched_h >= 1:
-                    matched_v += 1
+                if matched_h >= 1 or (has_h_bridge and span_w <= 0.55 * w):
+                    matched_v_full += 1
+                elif is_finite_aligned_pair and span_w <= 0.52 * w:
+                    matched_v_compact += 1
 
-        if matched_h >= 1 and matched_v >= 1:
-            return True, min(1.0, 0.88 + 0.04 * min(3, matched_v + matched_h))
+        if matched_h >= 1 and (matched_v_full + matched_v_compact) >= 1:
+            return True, min(1.0, 0.88 + 0.04 * min(3, matched_v_full + matched_v_compact + matched_h))
         if face_box is not None:
-            # With a verified human face in frame, single-axis background lines (wall/curtain/door) are not a bezel
+            # With a verified human face in frame, unclosed background lines (wall/curtain/door) are not a bezel
             return False, 0.0
-        if matched_v >= 1:
-            return True, min(1.0, 0.78 + 0.08 * min(3, matched_v))
+        if (matched_v_full + matched_v_compact) >= 1:
+            return True, min(1.0, 0.78 + 0.08 * min(3, matched_v_full + matched_v_compact))
         if matched_h >= 1:
             return True, min(1.0, 0.78 + 0.08 * min(3, matched_h))
         return False, 0.0
+
+    def _detect_rotated_screen_island(
+        self,
+        gray: np.ndarray,
+        eye_cx: int,
+        eye_cy: int,
+        face_box: Optional[Tuple[int, int, int, int]] = None,
+    ) -> Tuple[bool, bool, float]:
+        """
+        Detect a luminous mobile phone / tablet / laptop screen island surrounded by a darker bezel
+        collar at ANY tilt angle (handles tilted portrait phones covering 1.5% to 80% of camera view).
+        Returns: (encloses_eye, near_center_in_view, drop_strength)
+        """
+        h, w = gray.shape[:2]
+        frame_area = float(h * w)
+        enclosing_hit = False
+        center_hit = False
+        best_drop = 0.0
+
+        for th in (160, 185):
+            _, bm = cv2.threshold(gray, th, 255, cv2.THRESH_BINARY)
+            closed = cv2.morphologyEx(bm, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9)))
+            cnts, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for c in cnts:
+                area = cv2.contourArea(c)
+                if not (0.015 * frame_area <= area <= 0.78 * frame_area):
+                    continue
+                rect = cv2.minAreaRect(c)
+                rw, rh = rect[1]
+                if min(rw, rh) < 28:
+                    continue
+                rect_area = max(1.0, rw * rh)
+                fill = area / rect_area
+                asp = max(rw, rh) / max(1.0, min(rw, rh))
+                if fill < 0.54 or not (1.02 <= asp <= 2.9):
+                    continue
+
+                # Verify dark smartphone/monitor bezel collar around the glowing rectangular screen
+                box_pts = np.int32(cv2.boxPoints(rect))
+                m_in = np.zeros((h, w), dtype=np.uint8)
+                cv2.drawContours(m_in, [box_pts], 0, 255, -1)
+                collar = (cv2.dilate(m_in, np.ones((21, 21), np.uint8)) > 0) & (m_in == 0)
+                if not np.any(m_in) or not np.any(collar):
+                    continue
+                in_mean = float(np.mean(gray[m_in > 0]))
+                col_mean = float(np.mean(gray[collar]))
+                drop = in_mean - col_mean
+                # Skip bright background wall segments touching edges without a clean enclosed dark frame
+                bx, by, bw, bh = cv2.boundingRect(c)
+                touches_many_edges = (
+                    int(bx <= 2) + int(by <= 2) + int(bx + bw >= w - 2) + int(by + bh >= h - 2)
+                ) >= 2
+                if touches_many_edges and area > 0.35 * frame_area and drop < 45.0:
+                    continue
+
+                inside = cv2.pointPolygonTest(c, (float(eye_cx), float(eye_cy)), False) >= 0
+                if inside and in_mean >= 152.0 and drop >= 28.0:
+                    if face_box is not None and bw > face_box[2] * 1.5 and drop < 55.0:
+                        continue
+                    enclosing_hit = True
+                    best_drop = max(best_drop, drop)
+                elif (
+                    not touches_many_edges
+                    and in_mean >= 165.0
+                    and drop >= 55.0
+                    and (0.025 * frame_area <= area <= 0.65 * frame_area)
+                ):
+                    center_hit = True
+                    best_drop = max(best_drop, drop)
+
+        return enclosing_hit, center_hit, best_drop
 
     def _detect_device_borders(
         self,
@@ -833,8 +904,7 @@ class PresentationAttackDetector:
     ) -> Tuple[bool, float]:
         """
         Detect rectangular mobile phone, tablet, laptop bezel, or handheld screen borders enclosing the eye.
-        Ignores large background room objects when a live user's face fills a normal foreground pose unless
-        a distinct dark/sharp device frame border surrounds the eye.
+        Handles both upright and tilted phones at normal camera distances while ignoring open room walls.
         """
         h, w = frame_bgr.shape[:2]
         gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
@@ -847,34 +917,38 @@ class PresentationAttackDetector:
         else:
             ref_x, ref_y, ref_w, ref_h = ex, ey, ew, eh
 
-        # 1. Enclosed rectangular contour (tablet / card / phone / laptop bezel)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blurred, 35, 110)
-        contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         eye_cx, eye_cy = ex + ew // 2, ey + eh // 2
         frame_area = h * w
 
+        # 1a. Luminous tilted/upright smartphone screen island framed by dark bezel collar
+        enc_island, _, drop = self._detect_rotated_screen_island(gray, eye_cx, eye_cy, face_box=face_box)
+        if enc_island:
+            return True, min(1.0, 0.92 + min(0.08, drop / 500.0))
+
+        # 1b. Enclosed upright OR tilted 4-corner contour (phone case / tablet / monitor bezel)
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        edges = cv2.Canny(blurred, 35, 110)
+        contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
         for cnt in contours:
             area = cv2.contourArea(cnt)
-            if not (0.08 * frame_area < area < 0.94 * frame_area):
+            if not (0.025 * frame_area < area < 0.94 * frame_area):
                 continue
             peri = cv2.arcLength(cnt, True)
             approx = cv2.approxPolyDP(cnt, 0.03 * peri, True)
             if len(approx) == 4 and cv2.isContourConvex(approx):
                 bx, by, bw, bh = cv2.boundingRect(approx)
-                aspect = float(max(bw, bh)) / max(1, min(bw, bh))
-                if 1.15 <= aspect <= 2.6 and (bx <= eye_cx <= bx + bw and by <= eye_cy <= by + bh):
+                rect = cv2.minAreaRect(cnt)
+                rw, rh = rect[1]
+                aspect = float(max(rw, rh)) / max(1.0, min(rw, rh))
+                if 1.10 <= aspect <= 2.75 and (bx <= eye_cx <= bx + bw and by <= eye_cy <= by + bh):
                     if face_box is not None:
                         _, _, fw, fh = face_box
                         # Room wall/wardrobe behind user far larger than the face itself -> verify bezel edge drop
                         if bw > fw * 1.45 and bh > fh * 1.45:
-                            pad_m = 4
-                            ring = gray[max(0, by - pad_m) : min(h, by + bh + pad_m), max(0, bx - pad_m) : min(w, bx + bw + pad_m)]
-                            inner_crop = gray[by + pad_m : max(by + pad_m + 1, by + bh - pad_m), bx + pad_m : max(bx + pad_m + 1, bx + bw - pad_m)]
-                            if inner_crop.size > 0 and ring.size > 0:
-                                rim_edge_density = float(np.mean(edges[max(0, by) : min(h, by + bh), max(0, bx) : min(w, bx + bw)] > 0))
-                                if rim_edge_density < 0.08:
-                                    continue
+                            rim_edge_density = float(np.mean(edges[max(0, by) : min(h, by + bh), max(0, bx) : min(w, bx + bw)] > 0))
+                            if rim_edge_density < 0.08:
+                                continue
                     return True, 1.0
 
         # 2. Matched parallel opposite device edges around the eye
@@ -929,30 +1003,38 @@ class PresentationAttackDetector:
         ctx_patch = gray[cy1 : cy1 + ctx_side, cx1 : cx1 + ctx_side]
         if ctx_patch.shape[0] >= 24 and ctx_patch.shape[1] >= 24:
             _, wide_spike_ratio = self._analyze_fft_moire(ctx_patch)
-            if wide_spike_ratio > 34.0:
+            if wide_spike_ratio > 28.5:
                 score += 0.45
                 evidence += 1
 
-        # --- Cue 2: Emissive backlit screen plateau actually enveloping the EYE itself ---
-        _, bright_mask = cv2.threshold(gray, 215, 255, cv2.THRESH_BINARY)
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (11, 11))
-        closed = cv2.morphologyEx(bright_mask, cv2.MORPH_CLOSE, kernel)
-        contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        peri_bright_ratio = float(np.mean(ctx_patch > 195)) if ctx_patch.size > 0 else 0.0
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if not (0.06 * frame_area <= area <= 0.78 * frame_area):
-                continue
-            bx, by, bw, bh = cv2.boundingRect(cnt)
-            inside_contour = cv2.pointPolygonTest(cnt, (float(eye_cx), float(eye_cy)), False) >= 0
-            if inside_contour or (bx <= eye_cx <= bx + bw and by <= eye_cy <= by + bh and peri_bright_ratio >= 0.25):
-                fill_ratio = area / max(1, bw * bh)
-                if fill_ratio > 0.55 and peri_bright_ratio >= 0.22:
-                    score += 0.40
-                    evidence += 1
-                    break
+        # --- Cue 2: Emissive backlit phone/monitor plateau enclosing or held prominently in camera view ---
+        enc_island, center_island, drop = self._detect_rotated_screen_island(gray, eye_cx, eye_cy, face_box=face_box)
+        if enc_island:
+            score += 0.55
+            evidence += 1
+        elif center_island and drop >= 55.0:
+            score += 0.45
+            evidence += 1
+        else:
+            _, bright_mask = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (11, 11))
+            closed = cv2.morphologyEx(bright_mask, cv2.MORPH_CLOSE, kernel)
+            contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            peri_bright_ratio = float(np.mean(ctx_patch > 190)) if ctx_patch.size > 0 else 0.0
+            for cnt in contours:
+                area = cv2.contourArea(cnt)
+                if not (0.02 * frame_area <= area <= 0.78 * frame_area):
+                    continue
+                bx, by, bw, bh = cv2.boundingRect(cnt)
+                inside_contour = cv2.pointPolygonTest(cnt, (float(eye_cx), float(eye_cy)), False) >= 0
+                if inside_contour or (bx <= eye_cx <= bx + bw and by <= eye_cy <= by + bh and peri_bright_ratio >= 0.25):
+                    fill_ratio = area / max(1, bw * bh)
+                    if fill_ratio > 0.55 and peri_bright_ratio >= 0.22:
+                        score += 0.40
+                        evidence += 1
+                        break
 
-        # --- Cue 3: LED/OLED Cool-Blue Backlight Cast inside immediate glowing screen region ---
+        # --- Cue 3: LED/OLED Cool-Blue Backlight OR Non-Skin Pure White Digital UI Surrounding Eye ---
         if ctx_patch.size > 0:
             ctx_bgr = frame_bgr[cy1 : cy1 + ctx_side, cx1 : cx1 + ctx_side]
             bright_ctx_px = ctx_bgr[ctx_patch > 190]
@@ -961,6 +1043,21 @@ class PresentationAttackDetector:
                 if b_minus_r > 8.0:
                     score += 0.30
                     evidence += 1
+
+            hsv_ctx = cv2.cvtColor(ctx_bgr, cv2.COLOR_BGR2HSV)
+            ycrcb_ctx = cv2.cvtColor(ctx_bgr, cv2.COLOR_BGR2YCrCb)
+            white_ui_ratio = float(np.mean((hsv_ctx[:, :, 2] > 190) & (hsv_ctx[:, :, 1] < 45)))
+            skin_ratio = float(
+                np.mean(
+                    (ycrcb_ctx[:, :, 1] >= 133)
+                    & (ycrcb_ctx[:, :, 1] <= 175)
+                    & (ycrcb_ctx[:, :, 2] >= 77)
+                    & (ycrcb_ctx[:, :, 2] <= 128)
+                )
+            )
+            if white_ui_ratio >= 0.28 and skin_ratio < 0.20:
+                score += 0.45
+                evidence += 1
 
         # --- Cue 4: Matched finite parallel screen frame edges around eye ---
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
@@ -991,7 +1088,7 @@ class LiveHumanEyeVerifier:
 
     def __init__(
         self,
-        min_frames: int = 5,
+        min_frames: int = 7,
         max_buffer_size: int = 90,
         min_frames_for_decision: Optional[int] = None,
         enable_challenge: bool = True,
@@ -1006,6 +1103,11 @@ class LiveHumanEyeVerifier:
 
         # Eye absence tracking
         self._missing_eye_streak = 0
+
+        # Post-spoof lockout state (not cleared by _reset_challenge_only)
+        self._spoof_cooldown_active = False
+        self._spoof_lockout_until = 0.0
+        self._spoof_clean_streak = 0
 
         # Session blink memory & adaptive open-EAR baseline across active window
         self._session_blink_confirmed = False
@@ -1041,20 +1143,38 @@ class LiveHumanEyeVerifier:
 
     @property
     def blink_count(self) -> int:
-        """Count natural eyelid closure/reopening excursions in buffer."""
-        if len(self.frame_history) < 3:
+        """Count natural eyelid closure/reopening excursions with stable baseline and spatial continuity."""
+        if len(self.frame_history) < 4:
             return 0
-        openness = [r["openness"] for r in self.frame_history]
         close_th, open_th = self._blink_thresholds()
         blinks = 0
         in_blink = False
-        for opn in openness:
-            if opn < close_th:
+        seen_open_baseline = 0
+        prev_box = None
+        for rec in self.frame_history:
+            opn = rec["openness"]
+            box = rec["eye_box"]
+            if prev_box is not None:
+                cx = box[0] + box[2] / 2.0
+                cy = box[1] + box[3] / 2.0
+                pcx = prev_box[0] + prev_box[2] / 2.0
+                pcy = prev_box[1] + prev_box[3] / 2.0
+                max_jump_x = 0.60 * max(box[2], 20)
+                max_jump_y = 0.60 * max(box[3], 16)
+                if abs(cx - pcx) > max_jump_x or abs(cy - pcy) > max_jump_y:
+                    in_blink = False
+                    seen_open_baseline = 1 if (opn >= 0.25 and not rec.get("is_spoof_frame", False)) else 0
+                    prev_box = box
+                    continue
+            if opn >= 0.25 and not rec.get("is_spoof_frame", False):
+                seen_open_baseline += 1
+            if opn < close_th and seen_open_baseline >= 2:
                 if not in_blink:
                     in_blink = True
                     blinks += 1
             elif opn > open_th:
                 in_blink = False
+            prev_box = box
         return blinks
 
     # ------------------------------------------------------------------
@@ -1152,6 +1272,31 @@ class LiveHumanEyeVerifier:
         self._in_blink_excursion = False
         self._baseline_open_ear = 0.34
 
+    def _trigger_spoof_lockout(self, duration_sec: float = 1.5) -> None:
+        """Activate post-spoof cooldown and wipe buffered state so intermittent screen frames cannot pass."""
+        self._spoof_cooldown_active = True
+        self._spoof_lockout_until = max(self._spoof_lockout_until, time.monotonic() + duration_sec)
+        self._spoof_clean_streak = 0
+        self.frame_history.clear()
+        self._reset_challenge_only()
+
+    def _spoof_response(self, pad_res: Dict, temporal_metrics: Optional[Dict] = None, challenge: Optional[Dict] = None) -> Dict:
+        """Build standardized PRESENTATION_ATTACK_DETECTED response."""
+        return {
+            "status": "spoof_detected",
+            "state_machine_state": STATE_PAD_DETECTED,
+            "is_live": False,
+            "confidence_pct": round(pad_res["pad_confidence_pct"], 1),
+            "liveness_score_pct": 0.0,
+            "guidance_message": MSG_SPOOF_DETECTED,
+            "ui_message": UI_MESSAGES["spoof_detected"],
+            "eye_detected": True,
+            "pad_result": pad_res,
+            "temporal_metrics": temporal_metrics,
+            "consecutive_frames": len(self.frame_history),
+            "challenge": challenge,
+        }
+
     def add_frame(self, frame_bgr: np.ndarray) -> Dict:
         """
         Process a single live webcam frame through:
@@ -1166,6 +1311,9 @@ class LiveHumanEyeVerifier:
                 # Eye disappeared -> reset full verification & challenge state
                 self.frame_history.clear()
                 self._reset_challenge_only()
+                if self._spoof_cooldown_active and time.monotonic() >= self._spoof_lockout_until:
+                    self._spoof_cooldown_active = False
+                    self._spoof_clean_streak = 0
             return {
                 "status": "waiting_for_eye",
                 "state_machine_state": STATE_WAITING_FOR_EYE,
@@ -1183,41 +1331,103 @@ class LiveHumanEyeVerifier:
 
         self._missing_eye_streak = 0
 
-        # Track open-eye baseline & genuine full open->closed->open blink excursion in session
-        opn = float(det["openness_ratio"])
-        if opn >= 0.25:
-            self._baseline_open_ear = 0.80 * self._baseline_open_ear + 0.20 * opn
-        close_th, open_th = self._blink_thresholds()
-        if opn < close_th:
-            self._in_blink_excursion = True
-        elif opn > open_th and self._in_blink_excursion:
-            self._in_blink_excursion = False
-            self._session_blink_confirmed = True
-
-        # Run Presentation Attack Detection on current frame
+        # Run Presentation Attack Detection on current frame BEFORE any blink/openness memory updates
         pad_res = self.pad.analyze_frame_pad(frame_bgr, det["eye_box"], face_box=det.get("face_box"))
+        opn = float(det["openness_ratio"])
 
-        # During a transient mid-blink closure (< 0.25 openness) immediately following clean open-eye frames,
-        # horizontal eyelid crease edges can momentarily spike FFT; suppress FFT-only false trigger during
-        # the blink itself while still rejecting immediately on any bezel/emissive display cues or open frames.
+        # During a transient mid-blink closure (< 0.25 openness) immediately following >=2 clean open-eye frames,
+        # horizontal eyelid crease edges can momentarily spike FFT; suppress FFT-only flicker during the blink
+        # itself (up to 3 closed frames, without spatial jump) while rejecting immediately on any bezel/screen cues.
         sm_cur = pad_res.get("sub_metrics") or {}
-        has_recent_clean_open = any(
-            (r["openness"] >= 0.27 and not r["is_spoof_frame"]) for r in self.frame_history[-5:]
-        )
+        cur_box = det["eye_box"]
+        no_jump_from_prev = True
+        if self.frame_history:
+            prev_box = self.frame_history[-1]["eye_box"]
+            cx, cy = cur_box[0] + cur_box[2] / 2.0, cur_box[1] + cur_box[3] / 2.0
+            pcx, pcy = prev_box[0] + prev_box[2] / 2.0, prev_box[1] + prev_box[3] / 2.0
+            no_jump_from_prev = (
+                abs(cx - pcx) <= 0.60 * max(cur_box[2], 20)
+                and abs(cy - pcy) <= 0.60 * max(cur_box[3], 16)
+            )
+        has_recent_clean_open = (not self._spoof_cooldown_active) and no_jump_from_prev and sum(
+            1
+            for r in self.frame_history[-6:]
+            if (
+                r["openness"] >= 0.265
+                and not r["is_spoof_frame"]
+                and r.get("moire_score", 1.0) >= 0.65
+                and r.get("screen_region_score", 0.0) < 0.50
+            )
+        ) >= 2
+        closed_streak = sum(1 for r in self.frame_history[-3:] if r["openness"] < 0.25)
         is_transient_blink_crease = (
             opn < 0.25
+            and closed_streak < 3
             and has_recent_clean_open
-            and pad_res.get("is_spoof")
+            and (pad_res.get("is_spoof") or float(pad_res.get("moire_score", 1.0)) <= 0.45)
             and not sm_cur.get("bezel_detected", False)
+            and float(sm_cur.get("bezel_score", 0.0)) < 0.45
             and not sm_cur.get("screen_region_detected", False)
+            and float(sm_cur.get("screen_region_score", 0.0)) < 0.60
         )
         if is_transient_blink_crease:
             pad_res = dict(pad_res)
             pad_res["is_spoof"] = False
             pad_res["spoof_type"] = None
             pad_res["reasons"] = []
+            pad_res["moire_score"] = max(float(pad_res.get("moire_score", 0.0)), 0.72)
             pad_res["pad_score"] = max(float(pad_res.get("pad_score", 0.0)), 0.78)
             pad_res["pad_confidence_pct"] = round(pad_res["pad_score"] * 100.0, 1)
+
+        # Enforce post-spoof cooldown so mobile phone frame transitions cannot re-enter clean verification
+        if self._spoof_cooldown_active:
+            now_mono = time.monotonic()
+            frame_is_clean = (
+                (not pad_res.get("is_spoof"))
+                and float(pad_res.get("moire_score", 1.0)) > 0.55
+                and (not sm_cur.get("screen_region_detected", False))
+                and float(sm_cur.get("screen_region_score", 0.0)) < 0.35
+                and float(sm_cur.get("bezel_score", 0.0)) < 0.45
+            )
+            if not frame_is_clean:
+                self._trigger_spoof_lockout(duration_sec=1.5)
+                return self._spoof_response(pad_res)
+            if now_mono < self._spoof_lockout_until:
+                self._reset_challenge_only()
+                return self._spoof_response(pad_res)
+            self._spoof_clean_streak += 1
+            if self._spoof_clean_streak < 3:
+                self._reset_challenge_only()
+                return self._spoof_response(pad_res)
+            self._spoof_cooldown_active = False
+            self._spoof_clean_streak = 0
+
+        # Track open-eye baseline & genuine blink excursion only with >= 2 prior stable open frames & spatial continuity
+        cur_box = det["eye_box"]
+        spatial_continuous = True
+        if self.frame_history:
+            prev_box = self.frame_history[-1]["eye_box"]
+            cx, cy = cur_box[0] + cur_box[2] / 2.0, cur_box[1] + cur_box[3] / 2.0
+            pcx, pcy = prev_box[0] + prev_box[2] / 2.0, prev_box[1] + prev_box[3] / 2.0
+            if (
+                abs(cx - pcx) > 0.60 * max(cur_box[2], 20)
+                or abs(cy - pcy) > 0.60 * max(cur_box[3], 16)
+            ):
+                spatial_continuous = False
+                self._in_blink_excursion = False
+
+        if not pad_res.get("is_spoof") and opn >= 0.25:
+            self._baseline_open_ear = 0.80 * self._baseline_open_ear + 0.20 * opn
+        close_th, open_th = self._blink_thresholds()
+        recent_open_baseline = sum(
+            1 for r in self.frame_history[-5:] if (r["openness"] >= 0.25 and not r["is_spoof_frame"])
+        )
+        if not pad_res.get("is_spoof") and spatial_continuous:
+            if opn < close_th and len(self.frame_history) >= 2 and recent_open_baseline >= 2:
+                self._in_blink_excursion = True
+            elif opn > open_th and self._in_blink_excursion:
+                self._in_blink_excursion = False
+                self._session_blink_confirmed = True
 
         # Compute incremental optical flow once per frame
         internal_motion = 0.0
@@ -1241,6 +1451,8 @@ class LiveHumanEyeVerifier:
             "eye_gray": det["eye_crop_gray"],
             "internal_motion": internal_motion,
             "pad_score": pad_res["pad_score"],
+            "moire_score": float(pad_res.get("moire_score", 1.0)),
+            "screen_region_score": float(sm_cur.get("screen_region_score", 0.0)),
             "is_spoof_frame": pad_res["is_spoof"],
             "spoof_type": pad_res["spoof_type"],
             "reasons": pad_res["reasons"],
@@ -1250,29 +1462,16 @@ class LiveHumanEyeVerifier:
             self.frame_history.pop(0)
 
         # Immediate Presentation Attack Detection Gate
-        # Require >= 2 corroborating screen signals for instant rejection, or 2 recent spoof frames
+        # Reject immediately on strong multi-cue screen signals, repeated spoof frames, or repeated FFT Moire grid spikes
         recent_spoofs = sum(1 for r in self.frame_history[-4:] if r["is_spoof_frame"])
-        sm = pad_res.get("sub_metrics") or {}
+        recent_moire_spikes = sum(1 for r in self.frame_history[-4:] if r.get("moire_score", 1.0) <= 0.45)
         is_unambiguous_screen = pad_res["is_spoof"] and (
-            (pad_res.get("moire_score", 1.0) <= 0.15 and (sm.get("bezel_detected", False) or sm.get("screen_region_detected", False)))
-            or (sm.get("bezel_score", 0.0) >= 0.85 and (bool(sm.get("screen_region_detected", False)) or sm.get("moire_score", 1.0) <= 0.68))
+            (pad_res.get("moire_score", 1.0) <= 0.15 and (sm_cur.get("bezel_detected", False) or sm_cur.get("screen_region_detected", False)))
+            or (sm_cur.get("bezel_score", 0.0) >= 0.85 and (bool(sm_cur.get("screen_region_detected", False)) or sm_cur.get("moire_score", 1.0) <= 0.68))
         )
-        if is_unambiguous_screen or (len(self.frame_history) >= 2 and recent_spoofs >= 2):
-            self._reset_challenge_only()
-            return {
-                "status": "spoof_detected",
-                "state_machine_state": STATE_PAD_DETECTED,
-                "is_live": False,
-                "confidence_pct": round(pad_res["pad_confidence_pct"], 1),
-                "liveness_score_pct": 0.0,
-                "guidance_message": MSG_SPOOF_DETECTED,
-                "ui_message": UI_MESSAGES["spoof_detected"],
-                "eye_detected": True,
-                "pad_result": pad_res,
-                "temporal_metrics": None,
-                "consecutive_frames": len(self.frame_history),
-                "challenge": None,
-            }
+        if is_unambiguous_screen or (len(self.frame_history) >= 2 and (recent_spoofs >= 2 or recent_moire_spikes >= 2)):
+            self._trigger_spoof_lockout(duration_sec=1.5)
+            return self._spoof_response(pad_res)
 
         # Explicit EYE_DETECTED initial state before entering multi-frame VERIFYING_LIVENESS
         if len(self.frame_history) <= 2:
@@ -1425,21 +1624,8 @@ class LiveHumanEyeVerifier:
         # Must satisfy PAD clean, non-zero liveness, temporal dynamics, confidence threshold, AND challenge
         challenge_ok = self._challenge_passed or (not self.enable_challenge)
         if not is_pad_clean:
-            self._reset_challenge_only()
-            return {
-                "status": "spoof_detected",
-                "state_machine_state": STATE_PAD_DETECTED,
-                "is_live": False,
-                "confidence_pct": round(pad_res["pad_confidence_pct"], 1),
-                "liveness_score_pct": 0.0,
-                "guidance_message": MSG_SPOOF_DETECTED,
-                "ui_message": UI_MESSAGES["spoof_detected"],
-                "eye_detected": True,
-                "pad_result": pad_res,
-                "temporal_metrics": temporal_eval,
-                "consecutive_frames": len(self.frame_history),
-                "challenge": challenge_info,
-            }
+            self._trigger_spoof_lockout(duration_sec=1.5)
+            return self._spoof_response(pad_res, temporal_metrics=temporal_eval, challenge=challenge_info)
         elif is_temporally_live and challenge_ok and overall_confidence >= LIVENESS_CONFIDENCE_THRESHOLD and liveness_score_pct >= 65.0:
             return {
                 "status": "live_verified",
@@ -1555,10 +1741,13 @@ class LiveHumanEyeVerifier:
         }
 
     def reset(self):
-        """Reset temporal buffer, detector memory, and challenge-response state."""
+        """Reset temporal buffer, detector memory, post-spoof cooldown, and challenge-response state."""
         self.frame_history.clear()
         self.detector.reset()
         self._missing_eye_streak = 0
+        self._spoof_cooldown_active = False
+        self._spoof_lockout_until = 0.0
+        self._spoof_clean_streak = 0
         self._reset_challenge_only()
 
 

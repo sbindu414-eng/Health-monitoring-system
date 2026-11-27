@@ -363,7 +363,15 @@ def analyze_uploaded_eye_image(
 
         # Immediately check PAD on the submitted camera snapshot as well (prevents post-verification phone swaps)
         snap_det_res, snap_pad_res = _run_pad_on_rgb(rgb_np)
-        if snap_pad_res.get("is_spoof") or snap_pad_res.get("pad_score", 0.0) < PAD_GENUINE_THRESHOLD:
+        snap_sm = snap_pad_res.get("sub_metrics") or {}
+        snap_corroborated_screen = (
+            float(snap_pad_res.get("moire_score", 1.0)) <= 0.45
+            and (
+                float(snap_sm.get("screen_region_score", 0.0)) >= 0.35
+                or float(snap_sm.get("bezel_score", 0.0)) >= 0.50
+            )
+        )
+        if snap_pad_res.get("is_spoof") or snap_corroborated_screen or snap_pad_res.get("pad_score", 0.0) < PAD_GENUINE_THRESHOLD:
             return _spoof_rejection_response(
                 analysis_mode,
                 file_meta,
