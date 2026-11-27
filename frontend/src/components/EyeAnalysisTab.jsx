@@ -22,13 +22,13 @@ import { api } from '../services/api';
 
 const UI_STATUS_MESSAGES = {
     waiting_for_camera:   'Start your camera to begin.',
-    waiting_for_eye:      'Waiting for eye. Please look directly into the camera.',
-    eye_detected:         'Eye detected. Verifying that it is live.',
-    verifying_liveness:   'Please follow the eye movement instructions.',
+    waiting_for_eye:      'Waiting for eye. Position your face/eye clearly in front of the camera.',
+    eye_detected:         'Eye detected! Performing quick liveness & anti-spoof check...',
+    verifying_liveness:   'Almost done — look straight & blink once naturally.',
     spoof_detected:       'Possible screen or photograph detected. Analysis blocked.',
     verification_failed:  'Live human eye could not be verified. Please try again.',
-    live_verified:        'Live eye verified. Starting analysis.',
-    analysis_in_progress: 'Analysis in progress...',
+    live_verified:        'Live eye verified! Capturing & running iris analysis...',
+    analysis_in_progress: 'Capturing verified eye & running OpenCV iris segmentation...',
     completed:            'Eye analysis completed successfully.',
 };
 
@@ -202,7 +202,7 @@ export default function EyeAnalysisTab({ session }) {
                 setLivenessFeedback(UI_STATUS_MESSAGES.spoof_detected);
             } else {
                 setLivenessState('verification_failed');
-                setLivenessFeedback(UI_STATUS_MESSAGES.verification_failed);
+                setLivenessFeedback(res?.message || UI_STATUS_MESSAGES.verification_failed);
             }
         } catch (err) {
             setErrorMsg(err.message || 'Live eye analysis failed.');
@@ -222,10 +222,10 @@ export default function EyeAnalysisTab({ session }) {
         }
 
         const offscreenCanvas = document.createElement('canvas');
-        const vW = videoRef.current?.videoWidth || 640;
-        const vH = videoRef.current?.videoHeight || 480;
-        offscreenCanvas.width = vW;
-        offscreenCanvas.height = vH;
+        const initW = videoRef.current?.videoWidth || 640;
+        const initH = videoRef.current?.videoHeight || 480;
+        offscreenCanvas.width = initW;
+        offscreenCanvas.height = initH;
         const ctx = offscreenCanvas.getContext('2d');
 
         streamIntervalRef.current = setInterval(async () => {
@@ -235,8 +235,14 @@ export default function EyeAnalysisTab({ session }) {
 
             try {
                 isCheckingRef.current = true;
-                ctx.drawImage(videoRef.current, 0, 0, vW, vH);
-                const frameDataUrl = offscreenCanvas.toDataURL('image/jpeg', 0.85);
+                const curW = videoRef.current.videoWidth || 640;
+                const curH = videoRef.current.videoHeight || 480;
+                if (offscreenCanvas.width !== curW || offscreenCanvas.height !== curH) {
+                    offscreenCanvas.width = curW;
+                    offscreenCanvas.height = curH;
+                }
+                ctx.drawImage(videoRef.current, 0, 0, curW, curH);
+                const frameDataUrl = offscreenCanvas.toDataURL('image/jpeg', 0.90);
 
                 const res = await api.verifyLivenessStream({
                     sessionId: activeSessionId,
@@ -299,7 +305,7 @@ export default function EyeAnalysisTab({ session }) {
             } finally {
                 isCheckingRef.current = false;
             }
-        }, 140);
+        }, 110);
     };
 
     const startCamera = async (overrideDeviceId = null) => {
@@ -1027,9 +1033,18 @@ export default function EyeAnalysisTab({ session }) {
                                 )}
 
                                 {cameraActive && livenessState === 'completed' && (
-                                    <div className="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-500/50 text-emerald-200 text-xs flex items-start gap-2">
-                                        <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
-                                        <span>{UI_STATUS_MESSAGES.completed}</span>
+                                    <div className="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-500/50 text-emerald-200 text-xs flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2">
+                                            <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                                            <span>{UI_STATUS_MESSAGES.completed}</span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={handleResetVerification}
+                                            className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-semibold flex-shrink-0"
+                                        >
+                                            Scan Again
+                                        </button>
                                     </div>
                                 )}
 
@@ -1043,7 +1058,9 @@ export default function EyeAnalysisTab({ session }) {
                                             {livenessState === 'verifying_liveness' && livenessTelemetry?.challenge && !livenessTelemetry.challenge.passed && (
                                                 <div className="p-2 rounded bg-sky-950/60 border border-sky-500/40 text-sky-200 text-[11px]">
                                                     <strong className="text-sky-300 block font-mono">
-                                                        Challenge Step {Math.min((livenessTelemetry.challenge.step_index ?? 0) + 1, livenessTelemetry.challenge.total_steps || 4)} of {livenessTelemetry.challenge.total_steps || 4}:
+                                                        {(livenessTelemetry.challenge.total_steps || 1) === 1
+                                                            ? 'Single-Step Live Check:'
+                                                            : `Challenge Step ${Math.min((livenessTelemetry.challenge.step_index ?? 0) + 1, livenessTelemetry.challenge.total_steps || 1)} of ${livenessTelemetry.challenge.total_steps || 1}:`}
                                                     </strong>
                                                     <span className="font-semibold text-white">{livenessTelemetry.challenge.instruction}</span>
                                                 </div>
@@ -1148,7 +1165,7 @@ export default function EyeAnalysisTab({ session }) {
                         </button>
                     ) : (
                         <div className="text-[11px] font-mono text-center text-slate-400 bg-slate-950/70 border border-slate-800 rounded-xl py-2 px-3">
-                            Live camera analysis unlocks automatically after PAD &amp; challenge-response pass.
+                            Single-step auto-capture: center eye &amp; blink once (~1–2s) to verify &amp; run iris analysis immediately.
                         </div>
                     )}
                 </div>

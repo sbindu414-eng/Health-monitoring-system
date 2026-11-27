@@ -244,13 +244,15 @@ def _run_pad_on_rgb(rgb_np: np.ndarray) -> Tuple[Optional[Dict], Dict]:
     h_img, w_img = bgr_np.shape[:2]
     det_res = None
     eye_box = (0, 0, w_img, h_img)
+    face_box = None
     try:
         det_res = RealTimeEyeDetector().detect_eye_region(bgr_np)
         if det_res and det_res.get("eye_box"):
             eye_box = det_res["eye_box"]
+            face_box = det_res.get("face_box")
     except Exception:
         det_res = None
-    pad_res = PresentationAttackDetector().analyze_frame_pad(bgr_np, eye_box)
+    pad_res = PresentationAttackDetector().analyze_frame_pad(bgr_np, eye_box, face_box=face_box)
     return det_res, pad_res
 
 
@@ -335,6 +337,7 @@ def analyze_uploaded_eye_image(
     )
 
     session_snapshot = None
+    snap_det_res = None
     if is_camera_mode:
         # Independently validate short-lived server verification token; never trust raw boolean flags alone
         if liveness_telemetry is not None:
@@ -359,7 +362,7 @@ def analyze_uploaded_eye_image(
             return _liveness_rejection_response(analysis_mode, file_meta, reason=token_reason)
 
         # Immediately check PAD on the submitted camera snapshot as well (prevents post-verification phone swaps)
-        _, snap_pad_res = _run_pad_on_rgb(rgb_np)
+        snap_det_res, snap_pad_res = _run_pad_on_rgb(rgb_np)
         if snap_pad_res.get("is_spoof") or snap_pad_res.get("pad_score", 0.0) < PAD_GENUINE_THRESHOLD:
             return _spoof_rejection_response(
                 analysis_mode,
@@ -378,6 +381,13 @@ def analyze_uploaded_eye_image(
     if is_camera_mode or analysis_mode == "anterior_iris":
         modality_info = detect_eye_modality(rgb_np, requested_mode="anterior_iris")
         detected_modality = modality_info["detected_modality"]
+        if is_camera_mode and detected_modality == "invalid" and snap_det_res is not None:
+            modality_info = {
+                "valid_eye_image": True,
+                "detected_modality": "anterior_iris",
+                "reason": "Verified live webcam anterior eye/iris ROI detected.",
+            }
+            detected_modality = "anterior_iris"
     else:
         # Catch pitch-black / severely underexposed blank frames cleanly via image signal quality
         import cv2 as _cv2
@@ -658,7 +668,8 @@ def analyze_uploaded_eye_image(
     if is_camera_mode and not is_liveness_verified:
         return _liveness_rejection_response(analysis_mode, file_meta, pad_res=pad_res)
 
-    iris_res = analyze_iris_image(rgb_np)
+    cam_eye_box = snap_det_res.get("eye_box") if (session_snapshot is not None and snap_det_res) else None
+    iris_res = analyze_iris_image(rgb_np, eye_box=cam_eye_box)
     return {
         "status": "completed",
         "valid_eye_image": True,

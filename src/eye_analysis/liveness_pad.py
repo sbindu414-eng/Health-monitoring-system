@@ -57,18 +57,15 @@ UI_MESSAGES = {
 }
 
 # Validated verification & PAD thresholds
-LIVENESS_CONFIDENCE_THRESHOLD = 70.0
-TEMPORAL_LIVENESS_THRESHOLD = 0.65
+LIVENESS_CONFIDENCE_THRESHOLD = 65.0
+TEMPORAL_LIVENESS_THRESHOLD = 0.60
 PAD_GENUINE_THRESHOLD = 0.65
-SESSION_TOKEN_TTL_SECONDS = 15.0
+SESSION_TOKEN_TTL_SECONDS = 20.0
 
-# Challenge-response system constants
+# Streamlined single-step live challenge-response constants
 CHALLENGE_TIMEOUT_SECONDS = 12.0
 CHALLENGE_STEPS = [
-    {"id": "look_straight", "instruction": "Look straight at the camera.",  "type": "fixation"},
-    {"id": "blink",         "instruction": "Blink naturally once.",         "type": "blink"},
-    {"id": "look_left",     "instruction": "Look to your left.",            "type": "gaze_left"},
-    {"id": "look_right",    "instruction": "Look to your right.",           "type": "gaze_right"},
+    {"id": "blink", "instruction": "Look straight at the camera and blink once naturally.", "type": "blink"},
 ]
 
 
@@ -113,18 +110,26 @@ class RealTimeEyeDetector:
     def __init__(self):
         cv_data = cv2.data.haarcascades
         face_path = os.path.join(cv_data, "haarcascade_frontalface_default.xml")
+        face_alt_path = os.path.join(cv_data, "haarcascade_frontalface_alt2.xml")
         eye_path = os.path.join(cv_data, "haarcascade_eye.xml")
         glasses_path = os.path.join(cv_data, "haarcascade_eye_tree_eyeglasses.xml")
+        left_eye_path = os.path.join(cv_data, "haarcascade_lefteye_2splits.xml")
+        right_eye_path = os.path.join(cv_data, "haarcascade_righteye_2splits.xml")
 
         self.face_cascade = cv2.CascadeClassifier(face_path) if os.path.exists(face_path) else None
+        self.face_alt_cascade = cv2.CascadeClassifier(face_alt_path) if os.path.exists(face_alt_path) else None
         self.eye_cascade = cv2.CascadeClassifier(eye_path) if os.path.exists(eye_path) else None
         self.glasses_cascade = cv2.CascadeClassifier(glasses_path) if os.path.exists(glasses_path) else None
+        self.left_eye_cascade = cv2.CascadeClassifier(left_eye_path) if os.path.exists(left_eye_path) else None
+        self.right_eye_cascade = cv2.CascadeClassifier(right_eye_path) if os.path.exists(right_eye_path) else None
+        self._clahe = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(8, 8))
 
         # Temporal tracking memory
         self.tracked_eye_box: Optional[Tuple[int, int, int, int]] = None
         self.tracked_face_box: Optional[Tuple[int, int, int, int]] = None
         self.consecutive_detections = 0
         self.missed_cascade_frames = 0
+        self.missed_face_frames = 0
 
     def _estimate_pupil_rel_x(self, gray_roi: np.ndarray) -> float:
         """
@@ -155,23 +160,35 @@ class RealTimeEyeDetector:
         h, w = frame_bgr.shape[:2]
         gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
 
-        # 1. Face Detection on raw gray first (OpenCV Haar cascades are trained on raw 8-bit images)
+        # 1. Face Detection on raw gray first, then CLAHE & alt2 cascade for dim/angled webcams
         face_box = None
+        min_face = (int(min(h, w) * 0.16), int(min(h, w) * 0.16))
+        clahe_gray = None
         if self.face_cascade:
             faces = self.face_cascade.detectMultiScale(
-                gray, scaleFactor=1.1, minNeighbors=3, minSize=(int(min(h, w) * 0.18), int(min(h, w) * 0.18))
+                gray, scaleFactor=1.1, minNeighbors=3, minSize=min_face
             )
             if len(faces) == 0:
-                # Try CLAHE for low-contrast/backlit conditions
-                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+                clahe_gray = self._clahe.apply(gray)
                 faces = self.face_cascade.detectMultiScale(
-                    clahe, scaleFactor=1.1, minNeighbors=2, minSize=(int(min(h, w) * 0.18), int(min(h, w) * 0.18))
+                    clahe_gray, scaleFactor=1.1, minNeighbors=2, minSize=min_face
+                )
+            if len(faces) == 0 and self.face_alt_cascade:
+                if clahe_gray is None:
+                    clahe_gray = self._clahe.apply(gray)
+                faces = self.face_alt_cascade.detectMultiScale(
+                    clahe_gray, scaleFactor=1.1, minNeighbors=2, minSize=min_face
                 )
             if len(faces) > 0:
                 face_box = max(faces, key=lambda b: b[2] * b[3])
                 face_box = tuple(map(int, face_box))
+                self.missed_face_frames = 0
+            else:
+                self.missed_face_frames += 1
+                if self.tracked_face_box is not None and self.missed_face_frames <= 4:
+                    face_box = self.tracked_face_box
 
-        # 2. Search area: eye band of face if found, else central 84% of image
+        # 2. Search area: eye band of face if found, else central 88% of image
         if face_box:
             fx, fy, fw, fh = face_box
             search_x = max(0, fx)
@@ -179,37 +196,51 @@ class RealTimeEyeDetector:
             search_w = min(w - search_x, fw)
             search_h = min(h - search_y, int(fh * 0.48))
         else:
-            search_x = int(w * 0.08)
-            search_y = int(h * 0.08)
-            search_w = int(w * 0.84)
-            search_h = int(h * 0.84)
+            search_x = int(w * 0.06)
+            search_y = int(h * 0.06)
+            search_w = int(w * 0.88)
+            search_h = int(h * 0.88)
 
         search_roi = gray[search_y : search_y + search_h, search_x : search_x + search_w]
         if search_roi.size == 0:
             return None
 
-        # 3. Detect eyes within search area
+        # 3. Detect eyes within search area (raw -> CLAHE -> glasses -> 2splits)
+        min_eye = (max(16, int(min(h, w) * 0.035)), max(16, int(min(h, w) * 0.035)))
         eyes = []
         if self.eye_cascade:
-            e = self.eye_cascade.detectMultiScale(
-                search_roi, scaleFactor=1.06, minNeighbors=2, minSize=(int(min(h, w) * 0.05), int(min(h, w) * 0.05))
-            )
+            e = self.eye_cascade.detectMultiScale(search_roi, scaleFactor=1.06, minNeighbors=2, minSize=min_eye)
+            if len(e) > 0:
+                eyes.extend(e)
+
+        search_clahe = None
+        if len(eyes) == 0 and self.eye_cascade:
+            search_clahe = self._clahe.apply(search_roi)
+            e = self.eye_cascade.detectMultiScale(search_clahe, scaleFactor=1.06, minNeighbors=2, minSize=min_eye)
             if len(e) > 0:
                 eyes.extend(e)
 
         if len(eyes) == 0 and self.glasses_cascade:
-            eg = self.glasses_cascade.detectMultiScale(
-                search_roi, scaleFactor=1.06, minNeighbors=2, minSize=(int(min(h, w) * 0.05), int(min(h, w) * 0.05))
-            )
+            src = search_clahe if search_clahe is not None else search_roi
+            eg = self.glasses_cascade.detectMultiScale(src, scaleFactor=1.06, minNeighbors=2, minSize=min_eye)
             if len(eg) > 0:
                 eyes.extend(eg)
 
-        # 4. Fallback if cascades did not detect eye in current frame (bounded to survive brief blinks)
+        if len(eyes) == 0 and (self.left_eye_cascade or self.right_eye_cascade):
+            src = search_clahe if search_clahe is not None else self._clahe.apply(search_roi)
+            for sc in (self.left_eye_cascade, self.right_eye_cascade):
+                if sc is None:
+                    continue
+                es = sc.detectMultiScale(src, scaleFactor=1.08, minNeighbors=2, minSize=min_eye)
+                if len(es) > 0:
+                    eyes.extend(es)
+
+        # 4. Fallback if cascades did not detect eye in current frame (survives blinks & close-ups)
         if len(eyes) == 0:
             self.missed_cascade_frames += 1
 
-            # Fallback 1: Brief continuity during natural blink closure (up to 5 frames ~0.7s when patch still contains eyelid texture)
-            max_miss = 5 if face_box is not None else 4
+            # Fallback 1: Brief continuity during natural blink closure or brief head tilt
+            max_miss = 6 if face_box is not None else 4
             if self.tracked_eye_box is not None and self.missed_cascade_frames <= max_miss:
                 tx, ty, tw, th = self.tracked_eye_box
                 patch = gray[ty : ty + th, tx : tx + tw]
@@ -230,23 +261,25 @@ class RealTimeEyeDetector:
                         "consecutive_count": self.consecutive_detections,
                     }
 
-            # Fallback 2: Strict direct macro anterior eye close-up (dark central pupil inside brighter annulus)
-            center_x, center_y = w // 2, h // 2
-            roi_w, roi_h = int(w * 0.35), int(h * 0.30)
-            cx1, cy1 = max(0, center_x - roi_w // 2), max(0, center_y - roi_h // 2)
-            center_patch = gray[cy1 : cy1 + roi_h, cx1 : cx1 + roi_w]
-            if center_patch.size > 0:
+            # Fallback 2: Close-up macro eye inside central HUD oval (pupil/iris dark core inside lighter sclera)
+            for scale_w, scale_h in ((0.44, 0.36), (0.60, 0.48)):
+                roi_w, roi_h = int(w * scale_w), int(h * scale_h)
+                cx1, cy1 = max(0, (w - roi_w) // 2), max(0, (h - roi_h) // 2)
+                center_patch = gray[cy1 : cy1 + roi_h, cx1 : cx1 + roi_w]
+                if center_patch.size == 0:
+                    continue
                 patch_std = float(np.std(center_patch))
+                if patch_std <= 16.0 or (float(np.percentile(center_patch, 88)) - float(np.percentile(center_patch, 12))) < 26.0:
+                    continue
                 ph, pw = center_patch.shape
                 inner = center_patch[ph // 3 : 2 * ph // 3, pw // 3 : 2 * pw // 3]
-                left_w = center_patch[ph // 3 : 2 * ph // 3, : max(1, pw // 5)]
-                right_w = center_patch[ph // 3 : 2 * ph // 3, min(pw - 1, 4 * pw // 5) :]
+                left_w = center_patch[ph // 3 : 2 * ph // 3, : max(1, pw // 4)]
+                right_w = center_patch[ph // 3 : 2 * ph // 3, min(pw - 1, 3 * pw // 4) :]
                 if (
-                    patch_std > 18.0
-                    and inner.size > 0
+                    inner.size > 0
                     and left_w.size > 0
                     and right_w.size > 0
-                    and float(np.mean(inner)) + 15.0 < 0.5 * (float(np.mean(left_w)) + float(np.mean(right_w)))
+                    and float(np.mean(inner)) + 12.0 < 0.5 * (float(np.mean(left_w)) + float(np.mean(right_w)))
                 ):
                     macro_box = (cx1, cy1, roi_w, roi_h)
                     self.tracked_eye_box = macro_box
@@ -263,6 +296,35 @@ class RealTimeEyeDetector:
                         "openness_ratio": aperture,
                         "eye_aspect_ratio": aperture,
                         "pupil_rel_x": self._estimate_pupil_rel_x(center_patch),
+                        "is_open": aperture > 0.22,
+                        "consecutive_count": self.consecutive_detections,
+                    }
+
+            # Fallback 3: Strong frontal face detected -> localize active eye socket band inside face
+            if face_box is not None:
+                fx, fy, fw, fh = face_box
+                sx1 = max(0, fx + int(fw * 0.14))
+                sy1 = max(0, fy + int(fh * 0.22))
+                sw = min(w - sx1, int(fw * 0.34))
+                sh = min(h - sy1, int(fh * 0.24))
+                socket_patch = gray[sy1 : sy1 + sh, sx1 : sx1 + sw]
+                if socket_patch.size > 0 and float(np.std(socket_patch)) > 12.0:
+                    socket_box = (sx1, sy1, max(12, sw), max(12, sh))
+                    self.tracked_eye_box = socket_box
+                    self.tracked_face_box = face_box
+                    self.missed_cascade_frames = 0
+                    self.consecutive_detections += 1
+                    eye_crop_bgr = frame_bgr[sy1 : sy1 + sh, sx1 : sx1 + sw]
+                    aperture = self._estimate_eye_openness(socket_patch)
+                    return {
+                        "eye_detected": True,
+                        "eye_box": socket_box,
+                        "face_box": face_box,
+                        "eye_crop_bgr": eye_crop_bgr,
+                        "eye_crop_gray": socket_patch,
+                        "openness_ratio": aperture,
+                        "eye_aspect_ratio": aperture,
+                        "pupil_rel_x": self._estimate_pupil_rel_x(socket_patch),
                         "is_open": aperture > 0.22,
                         "consecutive_count": self.consecutive_detections,
                     }
@@ -377,6 +439,7 @@ class RealTimeEyeDetector:
         self.tracked_face_box = None
         self.consecutive_detections = 0
         self.missed_cascade_frames = 0
+        self.missed_face_frames = 0
 
 
 # ---------------------------------------------------------------------------
@@ -454,13 +517,25 @@ class PresentationAttackDetector:
         spoof_type = None
         reasons = []
 
-        # 1. Screen attack: High harmonic subpixel raster grid spike (> 34x median)
+        # 1. Screen attack: Definite periodic Moiré / pixel-grid harmonic spike
         if moire_score < 0.30:
             is_spoof = True
             spoof_type = "mobile_screen"
             reasons.append("High-frequency Moiré/pixel grid pattern detected characteristic of digital displays.")
-        # 2. Rectangular phone/monitor border detected enclosing the eye
-        elif bezel_detected and bezel_score >= 0.70:
+        # 2. Enclosed 4-sided screen bezel OR edge-pair bezel corroborated by secondary screen signal
+        elif bezel_detected and (
+            bezel_score >= 0.96
+            or (
+                bezel_score >= 0.72
+                and (
+                    screen_region_detected
+                    or screen_region_score >= 0.40
+                    or moire_score <= 0.68
+                    or reflection_type == "broad_screen_glare"
+                    or color_gamut_score <= 0.55
+                )
+            )
+        ):
             is_spoof = True
             spoof_type = "mobile_screen"
             reasons.append("Rectangular screen bezel or device border detected around eye region.")
@@ -474,8 +549,8 @@ class PresentationAttackDetector:
             is_spoof = True
             spoof_type = "mobile_screen"
             reasons.append("Flat emissive screen glare detected across the eye presentation surface.")
-        # 5. Paper print attack: diffuse matte reflection without corneal depth AND depressed micro-texture
-        elif reflection_type == "diffuse_matte_print" and texture_score <= 0.60:
+        # 5. Paper print attack: diffuse matte reflection without corneal depth AND genuinely low LBP texture (never tiny dim webcam blinks)
+        elif reflection_type == "diffuse_matte_print" and texture_score <= 0.45 and min(ew, eh) >= 40:
             is_spoof = True
             spoof_type = "printed_photo"
             reasons.append("Flat diffuse printed paper texture detected without natural 3D corneal highlight.")
@@ -529,8 +604,11 @@ class PresentationAttackDetector:
             return 0.88, 1.0
 
         gh, gw = gray.shape[:2]
-        if min(gh, gw) >= 96:
-            patch = cv2.resize(gray, (96, 96), interpolation=cv2.INTER_AREA).astype(np.float32)
+        if min(gh, gw) > 128:
+            # Native center crop without INTER_AREA downsampling so high-frequency 4px pixel grids are never blurred out
+            side = 128
+            cy0, cx0 = gh // 2, gw // 2
+            patch = gray[cy0 - side // 2 : cy0 - side // 2 + side, cx0 - side // 2 : cx0 - side // 2 + side].astype(np.float32)
         else:
             # Square native-pixel crop (zero upsampling artifacts!)
             side = min(gh, gw)
@@ -551,7 +629,7 @@ class PresentationAttackDetector:
         r = np.hypot(x_grid - cx, y_grid - cy)
 
         # Native-resolution high-frequency radial band strictly below Nyquist
-        r_lo = max(3.5, min(ph, pw) * 0.16)
+        r_lo = max(4.0, min(ph, pw) * 0.20)
         r_hi = min(ph, pw) * 0.46
         band_mask = (r >= r_lo) & (r <= r_hi)
         band_vals = magnitude[band_mask]
@@ -563,11 +641,11 @@ class PresentationAttackDetector:
         median_val = float(np.median(band_vals))
         spike_ratio = float(max_val / max(1e-4, median_val))
 
-        if spike_ratio > 34.0:
-            moire_score = 0.15  # Definite screen pixel grid / periodic Moiré
-        elif spike_ratio > 28.5:
-            moire_score = 0.42  # Suspicious borderline spike
-        elif spike_ratio > 22.0:
+        if spike_ratio > 48.0:
+            moire_score = 0.15  # Definite periodic screen pixel grid / Moiré
+        elif spike_ratio > 34.0:
+            moire_score = 0.42  # Suspicious borderline harmonic spike
+        elif spike_ratio > 24.0:
             moire_score = 0.68  # Mild compression/eyelash harmonics
         else:
             moire_score = 0.92  # Clean organic eye
@@ -738,6 +816,9 @@ class PresentationAttackDetector:
 
         if matched_h >= 1 and matched_v >= 1:
             return True, min(1.0, 0.88 + 0.04 * min(3, matched_v + matched_h))
+        if face_box is not None:
+            # With a verified human face in frame, single-axis background lines (wall/curtain/door) are not a bezel
+            return False, 0.0
         if matched_v >= 1:
             return True, min(1.0, 0.78 + 0.08 * min(3, matched_v))
         if matched_h >= 1:
@@ -752,7 +833,8 @@ class PresentationAttackDetector:
     ) -> Tuple[bool, float]:
         """
         Detect rectangular mobile phone, tablet, laptop bezel, or handheld screen borders enclosing the eye.
-        Handles both full-frame crops and centered eye ROIs.
+        Ignores large background room objects when a live user's face fills a normal foreground pose unless
+        a distinct dark/sharp device frame border surrounds the eye.
         """
         h, w = frame_bgr.shape[:2]
         gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
@@ -781,9 +863,19 @@ class PresentationAttackDetector:
             if len(approx) == 4 and cv2.isContourConvex(approx):
                 bx, by, bw, bh = cv2.boundingRect(approx)
                 aspect = float(max(bw, bh)) / max(1, min(bw, bh))
-                if 1.15 <= aspect <= 2.6:
-                    if bx <= eye_cx <= bx + bw and by <= eye_cy <= by + bh:
-                        return True, 1.0
+                if 1.15 <= aspect <= 2.6 and (bx <= eye_cx <= bx + bw and by <= eye_cy <= by + bh):
+                    if face_box is not None:
+                        _, _, fw, fh = face_box
+                        # Room wall/wardrobe behind user far larger than the face itself -> verify bezel edge drop
+                        if bw > fw * 1.45 and bh > fh * 1.45:
+                            pad_m = 4
+                            ring = gray[max(0, by - pad_m) : min(h, by + bh + pad_m), max(0, bx - pad_m) : min(w, bx + bw + pad_m)]
+                            inner_crop = gray[by + pad_m : max(by + pad_m + 1, by + bh - pad_m), bx + pad_m : max(bx + pad_m + 1, bx + bw - pad_m)]
+                            if inner_crop.size > 0 and ring.size > 0:
+                                rim_edge_density = float(np.mean(edges[max(0, by) : min(h, by + bh), max(0, bx) : min(w, bx + bw)] > 0))
+                                if rim_edge_density < 0.08:
+                                    continue
+                    return True, 1.0
 
         # 2. Matched parallel opposite device edges around the eye
         return self._find_screen_frame_edges(
@@ -899,7 +991,7 @@ class LiveHumanEyeVerifier:
 
     def __init__(
         self,
-        min_frames: int = 10,
+        min_frames: int = 5,
         max_buffer_size: int = 90,
         min_frames_for_decision: Optional[int] = None,
         enable_challenge: bool = True,
@@ -915,9 +1007,10 @@ class LiveHumanEyeVerifier:
         # Eye absence tracking
         self._missing_eye_streak = 0
 
-        # Session blink memory across the active challenge window
+        # Session blink memory & adaptive open-EAR baseline across active window
         self._session_blink_confirmed = False
         self._in_blink_excursion = False
+        self._baseline_open_ear: float = 0.34
 
         # Challenge-response state
         self.enable_challenge = enable_challenge
@@ -931,11 +1024,20 @@ class LiveHumanEyeVerifier:
 
     @staticmethod
     def _build_challenge_steps() -> List[Dict]:
-        """Start with baseline fixation ('Look straight'), then randomise blink/left/right order."""
+        """Build challenge step sequence (single fast step when CHALLENGE_STEPS has 1 entry)."""
+        if len(CHALLENGE_STEPS) <= 1:
+            return list(CHALLENGE_STEPS)
         first = CHALLENGE_STEPS[0]
         rest = list(CHALLENGE_STEPS[1:])
         random.shuffle(rest)
         return [first] + rest
+
+    def _blink_thresholds(self) -> Tuple[float, float]:
+        """Adaptive closure & reopen EAR cutoffs calibrated for both bright and dim webcams."""
+        base = max(0.275, min(0.46, self._baseline_open_ear))
+        close_th = min(0.24, max(0.18, base - 0.055))
+        open_th = max(0.265, min(0.30, base - 0.035))
+        return close_th, open_th
 
     @property
     def blink_count(self) -> int:
@@ -943,14 +1045,15 @@ class LiveHumanEyeVerifier:
         if len(self.frame_history) < 3:
             return 0
         openness = [r["openness"] for r in self.frame_history]
+        close_th, open_th = self._blink_thresholds()
         blinks = 0
         in_blink = False
         for opn in openness:
-            if opn < 0.24:
+            if opn < close_th:
                 if not in_blink:
                     in_blink = True
                     blinks += 1
-            elif opn > 0.30:
+            elif opn > open_th:
                 in_blink = False
         return blinks
 
@@ -998,12 +1101,15 @@ class LiveHumanEyeVerifier:
             return False
 
         elif step_type == "blink":
+            close_th, open_th = self._blink_thresholds()
+            if self._session_blink_confirmed and float(record["openness"]) >= open_th:
+                return True
             openness = [r["openness"] for r in self._challenge_step_frames]
             in_blink, found = False, False
             for opn in openness:
-                if opn < 0.23:
+                if opn < close_th:
                     in_blink = True
-                elif opn > 0.29 and in_blink:
+                elif opn > open_th and in_blink:
                     found = True
                     break
             return found
@@ -1044,6 +1150,7 @@ class LiveHumanEyeVerifier:
         self._first_gaze_sign = None
         self._session_blink_confirmed = False
         self._in_blink_excursion = False
+        self._baseline_open_ear = 0.34
 
     def add_frame(self, frame_bgr: np.ndarray) -> Dict:
         """
@@ -1059,10 +1166,6 @@ class LiveHumanEyeVerifier:
                 # Eye disappeared -> reset full verification & challenge state
                 self.frame_history.clear()
                 self._reset_challenge_only()
-            else:
-                if self.enable_challenge and self._challenge_start_time is not None:
-                    self._challenge_start_time = None
-                    self._challenge_step_frames = []
             return {
                 "status": "waiting_for_eye",
                 "state_machine_state": STATE_WAITING_FOR_EYE,
@@ -1080,11 +1183,14 @@ class LiveHumanEyeVerifier:
 
         self._missing_eye_streak = 0
 
-        # Track genuine full open->closed->open blink excursion in session
+        # Track open-eye baseline & genuine full open->closed->open blink excursion in session
         opn = float(det["openness_ratio"])
-        if opn < 0.24:
+        if opn >= 0.25:
+            self._baseline_open_ear = 0.80 * self._baseline_open_ear + 0.20 * opn
+        close_th, open_th = self._blink_thresholds()
+        if opn < close_th:
             self._in_blink_excursion = True
-        elif opn > 0.29 and self._in_blink_excursion:
+        elif opn > open_th and self._in_blink_excursion:
             self._in_blink_excursion = False
             self._session_blink_confirmed = True
 
@@ -1144,15 +1250,14 @@ class LiveHumanEyeVerifier:
             self.frame_history.pop(0)
 
         # Immediate Presentation Attack Detection Gate
-        # Require >= 2 corroborating screen signals for instant frame-1 rejection, or 2 recent spoof frames
-        recent_spoofs = sum(1 for r in self.frame_history[-5:] if r["is_spoof_frame"])
-        is_immediate_screen = pad_res["is_spoof"] and pad_res.get("spoof_type") in ("mobile_screen", "laptop_screen", "computer_monitor", "printed_photo")
+        # Require >= 2 corroborating screen signals for instant rejection, or 2 recent spoof frames
+        recent_spoofs = sum(1 for r in self.frame_history[-4:] if r["is_spoof_frame"])
         sm = pad_res.get("sub_metrics") or {}
         is_unambiguous_screen = pad_res["is_spoof"] and (
             (pad_res.get("moire_score", 1.0) <= 0.15 and (sm.get("bezel_detected", False) or sm.get("screen_region_detected", False)))
-            or (sm.get("bezel_score", 0.0) >= 0.85 and bool(sm.get("screen_region_detected", False)))
+            or (sm.get("bezel_score", 0.0) >= 0.85 and (bool(sm.get("screen_region_detected", False)) or sm.get("moire_score", 1.0) <= 0.68))
         )
-        if is_unambiguous_screen or (len(self.frame_history) >= 3 and recent_spoofs >= 2) or (is_immediate_screen and len(self.frame_history) >= 2):
+        if is_unambiguous_screen or (len(self.frame_history) >= 2 and recent_spoofs >= 2):
             self._reset_challenge_only()
             return {
                 "status": "spoof_detected",
@@ -1226,9 +1331,9 @@ class LiveHumanEyeVerifier:
         # Run multi-frame temporal dynamics
         temporal_eval = self._evaluate_temporal_dynamics()
         mean_pad_score = float(np.mean([r["pad_score"] for r in self.frame_history[-self.min_frames :]]))
-        has_any_spoof_frame = any(r["is_spoof_frame"] for r in self.frame_history[-6:])
+        recent_multi_spoofs = sum(1 for r in self.frame_history[-5:] if r["is_spoof_frame"]) >= 2
         is_temporally_live = bool(temporal_eval["is_live"])
-        is_pad_clean = (mean_pad_score >= PAD_GENUINE_THRESHOLD) and (not has_any_spoof_frame) and (not pad_res["is_spoof"])
+        is_pad_clean = (mean_pad_score >= PAD_GENUINE_THRESHOLD) and (not recent_multi_spoofs) and (not pad_res["is_spoof"])
 
         liveness_score_pct = round(float(temporal_eval["temporal_score"]) * 100.0, 1)
         if not is_pad_clean or pad_res["is_spoof"]:
@@ -1319,7 +1424,7 @@ class LiveHumanEyeVerifier:
         # Strict result authorization synthesis:
         # Must satisfy PAD clean, non-zero liveness, temporal dynamics, confidence threshold, AND challenge
         challenge_ok = self._challenge_passed or (not self.enable_challenge)
-        if not is_pad_clean or has_any_spoof_frame:
+        if not is_pad_clean:
             self._reset_challenge_only()
             return {
                 "status": "spoof_detected",
@@ -1397,11 +1502,11 @@ class LiveHumanEyeVerifier:
         max_ear = float(np.max(openness_curve))
         ear_range = max_ear - min_ear
 
-        # 1. Natural Physiological Blink Detection (buffer OR active session blink excursion)
+        # 1. Natural Physiological Blink Detection (adaptive to individual open-eye EAR baseline)
         blinks = self.blink_count
         blink_detected = (
             (blinks >= 1 or self._session_blink_confirmed)
-            and (min_ear <= 0.24 and max_ear >= 0.28 and ear_range >= 0.06)
+            and (min_ear <= min(0.245, max(0.18, max_ear - 0.052)) and max_ear >= 0.265 and ear_range >= 0.052)
         )
 
         # 2. Cached internal optical flow over consecutive pairs
@@ -1409,13 +1514,13 @@ class LiveHumanEyeVerifier:
         mean_internal_motion = float(np.mean(motion_vals)) if motion_vals else 0.0
 
         # Static print or frozen photo: near-zero micro-motion without blink
-        is_static_spoof = (mean_internal_motion < 0.03) and (not blink_detected)
+        is_static_spoof = (mean_internal_motion < 0.025) and (not blink_detected)
 
         # Rigid handheld screen/photo shaking rapidly with zero blinking
         is_rigid_spoof = (mean_internal_motion >= 2.2) and (not blink_detected)
 
-        # Genuine ocular micro-motion & micro-saccades (allowing natural head+gaze turns during interactive challenge)
-        saccade_detected = (0.04 <= mean_internal_motion <= 4.5) and not is_rigid_spoof
+        # Genuine ocular micro-motion & micro-saccades (allowing natural head+gaze turns & blinks)
+        saccade_detected = (0.025 <= mean_internal_motion <= 4.5) and not is_rigid_spoof
 
         # Liveness scoring (0.0 when static spoof / 0 motion)
         if is_static_spoof or is_rigid_spoof:
@@ -1650,7 +1755,7 @@ def verify_webcam_frame_sequence(frame_bytes_list: List[bytes]) -> Dict:
         }
 
     # Disable interactive gaze challenge in stateless batch sequence mode
-    verifier = LiveHumanEyeVerifier(min_frames=min(8, len(frame_bytes_list)), enable_challenge=False)
+    verifier = LiveHumanEyeVerifier(min_frames=min(5, len(frame_bytes_list)), enable_challenge=False)
 
     last_result = None
     for b in frame_bytes_list:

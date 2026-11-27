@@ -27,30 +27,50 @@ def _encode_png_base64(rgb_np: np.ndarray) -> str:
 
 
 def _locate_eye_roi(gray: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
-    """Locate primary eye bounding box via Haar cascade or centered ROI fallback."""
+    """Locate primary eye bounding box via face-guided Haar cascades or centered ROI fallback."""
     h, w = gray.shape
-    cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_eye.xml")
-    if os.path.exists(cascade_path):
-        cascade = cv2.CascadeClassifier(cascade_path)
-        eq = cv2.equalizeHist(gray)
-        boxes = cascade.detectMultiScale(
-            eq,
-            scaleFactor=1.08,
-            minNeighbors=3,
-            minSize=(max(20, min(h, w) // 10), max(20, min(h, w) // 10)),
-        )
+    min_side = min(h, w)
+    min_eye = (max(18, min_side // 22), max(18, min_side // 22))
+    eq = cv2.equalizeHist(gray)
+
+    # Optionally narrow to upper face eye band when a full face is present (e.g. laptop webcam)
+    search_x, search_y, search_w, search_h = 0, 0, w, h
+    face_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
+    if os.path.exists(face_path):
+        fc = cv2.CascadeClassifier(face_path)
+        faces = fc.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(int(min_side * 0.16), int(min_side * 0.16)))
+        if len(faces) == 0:
+            faces = fc.detectMultiScale(eq, scaleFactor=1.1, minNeighbors=2, minSize=(int(min_side * 0.16), int(min_side * 0.16)))
+        if len(faces) > 0:
+            fx, fy, fw, fh = max(faces, key=lambda b: b[2] * b[3])
+            search_x = max(0, int(fx))
+            search_y = max(0, int(fy + fh * 0.12))
+            search_w = min(w - search_x, int(fw))
+            search_h = min(h - search_y, int(fh * 0.48))
+
+    roi_search = eq[search_y : search_y + search_h, search_x : search_x + search_w]
+    if roi_search.size == 0:
+        roi_search = eq
+        search_x, search_y = 0, 0
+
+    for cname in ("haarcascade_eye.xml", "haarcascade_eye_tree_eyeglasses.xml"):
+        cpath = os.path.join(cv2.data.haarcascades, cname)
+        if not os.path.exists(cpath):
+            continue
+        cascade = cv2.CascadeClassifier(cpath)
+        boxes = cascade.detectMultiScale(roi_search, scaleFactor=1.06, minNeighbors=2, minSize=min_eye)
         if len(boxes) > 0:
-            # Choose largest eye detection closest to image center
-            cx_img, cy_img = w / 2.0, h / 2.0
+            cx_img, cy_img = roi_search.shape[1] / 2.0, roi_search.shape[0] / 2.0
             best = max(
                 boxes,
                 key=lambda b: (b[2] * b[3]) / (1.0 + 0.01 * np.hypot(b[0] + b[2] / 2 - cx_img, b[1] + b[3] / 2 - cy_img)),
             )
-            return tuple(map(int, best))
+            bx, by, bw, bh = map(int, best)
+            return (search_x + bx, search_y + by, bw, bh)
     return (0, 0, w, h)
 
 
-def analyze_iris_image(rgb_np: np.ndarray) -> Dict:
+def analyze_iris_image(rgb_np: np.ndarray, eye_box: Optional[Tuple[int, int, int, int]] = None) -> Dict:
     """
     Perform computer vision iris localization, pupil/eyelid masking,
     segmentation overlay rendering, and non-diagnostic CV feature extraction.
@@ -58,7 +78,14 @@ def analyze_iris_image(rgb_np: np.ndarray) -> Dict:
     h, w = rgb_np.shape[:2]
     gray = cv2.cvtColor(rgb_np, cv2.COLOR_RGB2GRAY)
 
-    x, y, rw, rh = _locate_eye_roi(gray)
+    if eye_box is not None and eye_box[2] >= 12 and eye_box[3] >= 12:
+        x, y, rw, rh = map(int, eye_box)
+        x = max(0, min(w - 12, x))
+        y = max(0, min(h - 12, y))
+        rw = max(12, min(w - x, rw))
+        rh = max(12, min(h - y, rh))
+    else:
+        x, y, rw, rh = _locate_eye_roi(gray)
     roi_gray = gray[y : y + rh, x : x + rw]
     roi_blurred = cv2.GaussianBlur(roi_gray, (7, 7), 1.5)
     min_dim = min(rw, rh)
@@ -185,6 +212,17 @@ def analyze_iris_image(rgb_np: np.ndarray) -> Dict:
     cv2.circle(vis, (pupil_cx, pupil_cy), pupil_r, (34, 211, 238), 2)
     cv2.line(vis, (iris_cx - iris_r, upper_lid_y), (iris_cx + iris_r, upper_lid_y), (245, 158, 11), 1)
     cv2.line(vis, (iris_cx - iris_r, lower_lid_y), (iris_cx + iris_r, lower_lid_y), (245, 158, 11), 1)
+
+    # For wide laptop webcam captures where the segmented eye is compact (< 38% of frame),
+    # zoom into a clean periocular crop so the cyan pupil & green iris overlay is clearly inspectable.
+    if rw < w * 0.38 and rh < h * 0.45:
+        zw = max(int(rw * 3.0), 160)
+        zh = max(int(rh * 2.6), 120)
+        zx1 = max(0, min(w - min(w, zw), iris_cx - zw // 2))
+        zy1 = max(0, min(h - min(h, zh), iris_cy - zh // 2))
+        vis_display = vis[zy1 : min(h, zy1 + zh), zx1 : min(w, zx1 + zw)]
+        if vis_display.size > 0:
+            vis = cv2.resize(vis_display, (320, 240), interpolation=cv2.INTER_CUBIC)
 
     overlay_b64 = _encode_png_base64(vis)
 

@@ -124,7 +124,7 @@ def assess_image_quality(rgb_np: np.ndarray, is_fundus_like: bool = False) -> Di
         reasons.append(f"Image is severely underexposed / too dark (mean luminance={brightness:.1f}/255).")
     elif brightness > 235.0:
         reasons.append(f"Image is overexposed / washed out (mean luminance={brightness:.1f}/255).")
-    if contrast < 12.0:
+    if contrast < 8.0:
         reasons.append(f"Insufficient contrast / flat signal (std={contrast:.1f}).")
     if bright_glare_ratio > 0.35:
         reasons.append(f"Excessive specular glare / white blowout covers {bright_glare_ratio * 100:.1f}% of pixels.")
@@ -212,17 +212,29 @@ def _anterior_eye_heuristics(rgb_np: np.ndarray) -> Dict:
     h, w = gray.shape
     min_side = min(h, w)
 
-    # 1. Haar cascade eye detection (handles both single-eye and two-eye portrait photos)
+    # 1. Haar cascade eye detection (raw + glasses fallback, supports webcam eyes >= 18px)
     eye_cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_eye.xml")
+    glasses_cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_eye_tree_eyeglasses.xml")
     haar_eyes = []
+    min_eye_dim = max(18, min_side // 22)
+    eq = cv2.equalizeHist(gray)
     if os.path.exists(eye_cascade_path):
         cascade = cv2.CascadeClassifier(eye_cascade_path)
-        eq = cv2.equalizeHist(gray)
         detected = cascade.detectMultiScale(
             eq,
             scaleFactor=1.08,
             minNeighbors=3,
-            minSize=(max(20, min_side // 10), max(20, min_side // 10)),
+            minSize=(min_eye_dim, min_eye_dim),
+        )
+        if len(detected) > 0:
+            haar_eyes = [tuple(map(int, box)) for box in detected]
+    if len(haar_eyes) == 0 and os.path.exists(glasses_cascade_path):
+        g_cascade = cv2.CascadeClassifier(glasses_cascade_path)
+        detected = g_cascade.detectMultiScale(
+            eq,
+            scaleFactor=1.08,
+            minNeighbors=2,
+            minSize=(min_eye_dim, min_eye_dim),
         )
         if len(detected) > 0:
             haar_eyes = [tuple(map(int, box)) for box in detected]
@@ -238,7 +250,7 @@ def _anterior_eye_heuristics(rgb_np: np.ndarray) -> Dict:
         minDist=max(20, min_side // 5),
         param1=65,
         param2=27,
-        minRadius=max(14, min_side // 16),
+        minRadius=max(7, min_side // 42),
         maxRadius=max(20, int(min_side * 0.48)),
     )
 

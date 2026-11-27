@@ -503,6 +503,57 @@ class TestComprehensivePADAndAuthorization(unittest.TestCase):
             self.assertIn(res["status"], ("spoof_detected", "liveness_failed"))
             self.assertNotIn("diabetes_detected", res)
 
+    def test_single_step_verification_with_room_background_and_closeup_eye(self):
+        """Real user sitting in a room with rectangular wall lines verifies in <=12 frames (1 step) and segments iris."""
+        sid = f"room_cam_{int(np.random.randint(1000, 9999))}"
+        SESSION_MANAGER.reset_session(sid)
+
+        def _make_room_webcam_frame(openness: float, shift: int = 0) -> np.ndarray:
+            # Bright cream/white room wall with wardrobe/doorframe vertical & horizontal lines behind live user
+            img = np.full((480, 640, 3), (195, 200, 205), dtype=np.uint8)
+            cv2.line(img, (110, 0), (110, 480), (120, 125, 130), 3)
+            cv2.line(img, (530, 0), (530, 480), (120, 125, 130), 3)
+            cv2.line(img, (0, 65), (640, 65), (140, 145, 150), 2)
+            cv2.ellipse(img, (320 + shift, 240), (110, 145), 0, 0, 360, (145, 175, 205), -1)
+            for ex in (270 + shift, 370 + shift):
+                ry = max(3, int(18 * openness))
+                cv2.ellipse(img, (ex, 225), (32, ry), 0, 0, 360, (225, 228, 232), -1)
+                ir = min(ry, 12)
+                if ir > 3:
+                    cv2.circle(img, (ex, 225), ir, (60, 85, 110), -1)
+                    cv2.circle(img, (ex, 225), max(2, ir // 2), (18, 18, 18), -1)
+            rng = np.random.default_rng(10 + int(openness * 100) + abs(shift))
+            img = np.clip(img.astype(np.int16) + rng.normal(0, 4, img.shape).astype(np.int16), 0, 255).astype(np.uint8)
+            return img
+
+        seq = [1.0, 1.0, 0.95, 0.2, 0.12, 0.9, 1.0, 1.0, 0.95, 1.0]
+        res = None
+        verified_at_step = None
+        for idx, opn in enumerate(seq):
+            res = SESSION_MANAGER.process_frame(sid, _make_room_webcam_frame(opn, shift=(idx % 3)), camera_device_id="cam_0")
+            if res.get("status") == "live_verified":
+                verified_at_step = idx + 1
+                break
+
+        self.assertIsNotNone(verified_at_step, f"Single-step verification did not pass cleanly: last={res}")
+        self.assertLessEqual(verified_at_step, 10)
+        self.assertIn("verificationToken", res)
+
+        snap = _make_room_webcam_frame(1.0, shift=1)
+        ok, buf = cv2.imencode(".png", snap)
+        self.assertTrue(ok)
+        analysis = analyze_uploaded_eye_image(
+            file_bytes=buf.tobytes(),
+            filename="live_webcam_eye.png",
+            analysis_mode="live_camera",
+            session_id=sid,
+            verification_token=res["verificationToken"],
+            source="camera",
+        )
+        self.assertEqual(analysis["status"], "completed")
+        self.assertTrue(analysis.get("iris_detected"))
+        self.assertIn("iris_analysis", analysis)
+
 
 if __name__ == "__main__":
     unittest.main()
